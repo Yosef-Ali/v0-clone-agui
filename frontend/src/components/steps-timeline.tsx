@@ -33,6 +33,13 @@ export function StepsTimeline() {
     }
   };
 
+  // Hide timeline if no process has started (all steps are queued and progress is 0)
+  const hasStarted = progress > 0 || Object.values(steps).some(step => step.status !== "queued");
+
+  if (!hasStarted) {
+    return null;
+  }
+
   return (
     <div className="border-b border-border bg-background">
       <div className="p-4 space-y-4">

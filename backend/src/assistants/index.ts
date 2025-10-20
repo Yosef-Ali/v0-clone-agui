@@ -1,4 +1,5 @@
 import { createV0GeneratorAssistant } from "./v0-generator.js";
+import { createV0GeneratorSubgraphsAssistant } from "./v0-generator-subgraphs.js";
 import {
   type AssistantSummary,
   type GraphInfo,
@@ -33,8 +34,13 @@ class AssistantRegistry {
   private readonly assistantsByGraphId = new Map<string, AssistantDefinition>();
 
   constructor() {
-    const assistant = createV0GeneratorAssistant();
-    this.register(assistant);
+    // Register legacy single-agent assistant (for backward compatibility)
+    const legacyAssistant = createV0GeneratorAssistant();
+    this.register(legacyAssistant as any);
+
+    // Register new subgraph assistant (4-agent architecture)
+    const subgraphAssistant = createV0GeneratorSubgraphsAssistant();
+    this.register(subgraphAssistant as any);
   }
 
   register(definition: AssistantDefinition): void {

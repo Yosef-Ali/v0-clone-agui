@@ -9,6 +9,7 @@ import {
   type ComponentState,
   type StepStatus,
 } from "../app/providers";
+import { StepsTimeline } from "./steps-timeline";
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
 
@@ -284,6 +285,9 @@ export function ChatInterface() {
             </div>
           </div>
         ))}
+
+        {/* Show timeline inline with conversation when process is running */}
+        <StepsTimeline />
 
         {isLoading && (
           <div className="flex justify-start">
