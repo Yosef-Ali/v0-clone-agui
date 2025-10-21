@@ -1,4 +1,4 @@
-import { StateGraph, END } from "@langchain/langgraph";
+import { StateGraph, END, type CompiledStateGraph } from "@langchain/langgraph";
 import type { SupervisorState, DesignSpec } from "../../state/generator-state.js";
 import { logger } from "../../utils/logger.js";
 
@@ -73,7 +73,7 @@ async function designComponentNode(state: ComponentDesignerState): Promise<Parti
 /**
  * Create the Component Designer subgraph
  */
-export function createComponentDesignerGraph() {
+export function createComponentDesignerGraph(): CompiledStateGraph<any, any> {
   const workflow = new StateGraph<ComponentDesignerState>({
     channels: {
       messages: {

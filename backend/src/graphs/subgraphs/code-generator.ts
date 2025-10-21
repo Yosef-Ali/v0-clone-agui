@@ -1,4 +1,4 @@
-import { StateGraph, END } from "@langchain/langgraph";
+import { StateGraph, END, type CompiledStateGraph } from "@langchain/langgraph";
 import type { SupervisorState, ComponentStateType } from "../../state/generator-state.js";
 import { getDeepSeekClient } from "../../utils/deepseek-client.js";
 import { logger } from "../../utils/logger.js";
@@ -78,7 +78,7 @@ Generate ONLY the HTML markup with inline <script> for interactivity.
 /**
  * Create the Code Generator subgraph
  */
-export function createCodeGeneratorGraph() {
+export function createCodeGeneratorGraph(): CompiledStateGraph<any, any> {
   const workflow = new StateGraph<CodeGeneratorState>({
     channels: {
       messages: {
