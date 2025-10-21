@@ -3,6 +3,7 @@
 import { CheckCircle, Circle, Loader2, XCircle } from "lucide-react";
 
 import { useComponentState } from "@/app/providers";
+import { Shimmer } from "./shimmer";
 
 const STEPS: Array<{ id: string; label: string }> = [
   { id: "spec", label: "PRD & Decisions" },
@@ -16,7 +17,7 @@ const STEPS: Array<{ id: string; label: string }> = [
 
 export function StepsTimeline() {
   const { componentState } = useComponentState();
-  const { steps, logs, progress, prd } = componentState;
+  const { steps, logs, prd } = componentState;
   const specStatus = steps["spec"]?.status ?? "queued";
 
   const visibleSteps = STEPS.filter((step) => {
@@ -39,9 +40,8 @@ export function StepsTimeline() {
     }
   };
 
-  // Hide timeline if no process has started (all steps are queued and progress is 0)
-  const hasStarted =
-    progress > 0 || Object.values(steps).some((step) => step.status !== "queued");
+  // Hide timeline if no process has started (all steps are queued)
+  const hasStarted = Object.values(steps).some((step) => step.status !== "queued");
 
   if (!hasStarted || visibleSteps.length === 0 || specStatus !== "success") {
     return null;
@@ -50,29 +50,25 @@ export function StepsTimeline() {
   return (
     <div className="border-b border-border bg-background">
       <div className="p-4 space-y-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-sm font-semibold">Build Timeline</h2>
-            <p className="text-xs text-muted-foreground">
-              Follow the generation pipeline and review artifacts as they stream in.
-            </p>
-          </div>
-          <div className="w-32 h-1.5 bg-muted rounded-full overflow-hidden">
-            <div
-              className="h-full bg-primary transition-all duration-300"
-              style={{ width: `${progress}%` }}
-            />
-          </div>
+        <div>
+          <h2 className="text-sm font-semibold">Build Timeline</h2>
+          <p className="text-xs text-muted-foreground">
+            Follow the generation pipeline and review artifacts as they stream in.
+          </p>
         </div>
 
         <div className="space-y-2">
           {visibleSteps.map((step) => {
             const status = steps[step.id]?.status ?? "queued";
             const note = steps[step.id]?.note;
+            const isRunning = status === "running";
+            
             return (
               <div
                 key={step.id}
-                className="flex items-start gap-3 px-1"
+                className={`flex items-start gap-3 px-1 transition-all ${
+                  isRunning ? "bg-primary/5 -mx-1 px-2 py-1.5 rounded-lg" : ""
+                }`}
               >
                 <div className="mt-0.5">
                   {renderStatusIcon(status)}
@@ -84,6 +80,11 @@ export function StepsTimeline() {
                     <p className="text-xs text-primary mt-1">
                       {note}
                     </p>
+                  )}
+                  {isRunning && !note && (
+                    <div className="mt-1">
+                      <Shimmer className="w-32 h-2" />
+                    </div>
                   )}
                 </div>
               </div>

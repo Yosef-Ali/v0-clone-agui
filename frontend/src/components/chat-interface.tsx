@@ -485,35 +485,6 @@ export function ChatInterface() {
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-background">
-        {messages.length === 0 && (
-          <div className="text-center text-muted-foreground py-12">
-            <p className="text-lg">Hi! 👋</p>
-            <p className="mt-2">Describe the app you want to build...</p>
-            <p className="text-sm mt-4 text-muted-foreground/60">
-              e.g., Build a todo app with dark mode
-            </p>
-          </div>
-        )}
-
-        {messages.map((message) => (
-          <div
-            key={message.id}
-            className={`flex ${
-              message.role === "user" ? "justify-end" : "justify-start"
-            }`}
-          >
-            <div
-              className={`max-w-[80%] rounded-lg px-4 py-2 ${
-                message.role === "user"
-                  ? "bg-primary text-primary-foreground"
-                  : "bg-muted"
-              }`}
-            >
-              <p className="text-sm whitespace-pre-wrap">{message.content}</p>
-            </div>
-          </div>
-        ))}
-
         {pendingApproval && (
           <div className="rounded-lg border border-border bg-muted/30 p-4 space-y-3">
             <div>
@@ -554,6 +525,35 @@ export function ChatInterface() {
             </div>
           </div>
         )}
+
+        {messages.length === 0 && !pendingApproval && (
+          <div className="text-center text-muted-foreground py-12">
+            <p className="text-lg">Hi! 👋</p>
+            <p className="mt-2">Describe the app you want to build...</p>
+            <p className="text-sm mt-4 text-muted-foreground/60">
+              e.g., Build a todo app with dark mode
+            </p>
+          </div>
+        )}
+
+        {messages.map((message) => (
+          <div
+            key={message.id}
+            className={`flex ${
+              message.role === "user" ? "justify-end" : "justify-start"
+            }`}
+          >
+            <div
+              className={`max-w-[80%] rounded-lg px-4 py-2 ${
+                message.role === "user"
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-muted"
+              }`}
+            >
+              <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+            </div>
+          </div>
+        ))}
 
         <StepsTimeline />
 
