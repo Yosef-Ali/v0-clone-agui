@@ -33,6 +33,8 @@ export interface ComponentState {
   artifacts: ArtifactSummary[];
   prd?: string;
   progress: number;
+  awaitingApproval: boolean;
+  pendingApprovalStep: string | null;
 }
 
 export const INITIAL_COMPONENT_STATE: ComponentState = {
@@ -53,6 +55,8 @@ export const INITIAL_COMPONENT_STATE: ComponentState = {
   artifacts: [],
   prd: undefined,
   progress: 0,
+  awaitingApproval: false,
+  pendingApprovalStep: null,
 };
 
 export function createInitialComponentState(): ComponentState {
@@ -67,6 +71,8 @@ export function createInitialComponentState(): ComponentState {
     logs: [],
     artifacts: [],
     prd: undefined,
+    awaitingApproval: false,
+    pendingApprovalStep: null,
   };
 }
 

@@ -18,6 +18,12 @@ export function StepsTimeline() {
   const { componentState } = useComponentState();
   const { steps, logs, progress, prd } = componentState;
 
+
+  const visibleSteps = STEPS.filter((step) => {
+    const status = steps[step.id]?.status ?? "queued";
+    return status !== "queued";
+  });
+
   const renderStatusIcon = (status: string) => {
     switch (status) {
       case "success":
@@ -34,9 +40,10 @@ export function StepsTimeline() {
   };
 
   // Hide timeline if no process has started (all steps are queued and progress is 0)
-  const hasStarted = progress > 0 || Object.values(steps).some(step => step.status !== "queued");
+  const hasStarted =
+    progress > 0 || Object.values(steps).some((step) => step.status !== "queued");
 
-  if (!hasStarted) {
+  if (!hasStarted || visibleSteps.length === 0) {
     return null;
   }
 
@@ -59,19 +66,26 @@ export function StepsTimeline() {
         </div>
 
         <div className="space-y-2">
-          {STEPS.map((step) => {
+          {visibleSteps.map((step) => {
             const status = steps[step.id]?.status ?? "queued";
             const note = steps[step.id]?.note;
+            const isActive = status === "running";
             return (
               <div
                 key={step.id}
-                className="flex items-start gap-3 rounded-md border border-border/60 bg-muted/30 px-3 py-2"
+                className="flex items-start gap-3 px-1"
               >
-                <div className="mt-0.5">{renderStatusIcon(status)}</div>
+                <div className="mt-0.5">
+                  {renderStatusIcon(status)}
+                </div>
                 <div className="flex-1">
-                  <p className="text-sm font-medium">{step.label}</p>
+                  <p className="text-sm font-medium text-foreground">{step.label}</p>
                   <p className="text-xs text-muted-foreground capitalize">{status}</p>
-                  {note && <p className="text-xs text-primary mt-1">{note}</p>}
+                  {note && (
+                    <p className="text-xs text-primary mt-1">
+                      {note}
+                    </p>
+                  )}
                 </div>
               </div>
             );

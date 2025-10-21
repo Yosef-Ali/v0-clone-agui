@@ -43,6 +43,14 @@ const schemas: GraphSchemas = {
     properties: {
       messages: { type: "array" },
       prompt: { type: "string" },
+      approval: {
+        type: "object",
+        properties: {
+          step: { type: "string" },
+          status: { type: "string", enum: ["approved", "rejected"] },
+          feedback: { type: "string" },
+        },
+      },
     },
   },
   output_schema: {
@@ -57,6 +65,8 @@ const schemas: GraphSchemas = {
       logs: { type: "array" },
       prd: { type: "string" },
       progress: { type: "number" },
+      awaitingApproval: { type: "boolean" },
+      pendingApprovalStep: { type: ["string", "null"] },
     },
   },
   context_schema: {
@@ -92,18 +102,7 @@ export function createV0GeneratorAssistant() {
     graph: graphInfo,
     schemas,
     async run({ thread, input, runId, emit, emitState }: RunContext): Promise<RunResult> {
-      const state: ThreadValues = {
-        ...initialGeneratorState,
-        // deep clone of default steps to avoid shared reference
-        steps: Object.fromEntries(
-          Object.entries(defaultSteps).map(([id, step]) => [id, { ...step }])
-        ),
-      };
-
-      const prompt = extractLatestUserPromptFromInput(input, thread.values);
-      state.currentStep = "spec";
-      emitState(state);
-
+      const state = initializeState(thread.values);
       const totalSteps = STEPS.length;
 
       const setStepStatus = (id: StepId, status: StepStatus["status"], note?: string) => {
@@ -132,25 +131,182 @@ export function createV0GeneratorAssistant() {
         emit("progress", { pct });
       };
 
+      const approvalDecision = parseApprovalDecision(input);
+      const clarificationResponse = parseClarificationResponse(input);
+      const pendingApprovalStep = (state.pendingApprovalStep ?? null) as StepId | null;
+      const awaitingHardApproval =
+        state.awaitingApproval &&
+        pendingApprovalStep &&
+        (pendingApprovalStep !== "spec" || Boolean(state.prd));
+
+      if (awaitingHardApproval && pendingApprovalStep) {
+        if (!approvalDecision || approvalDecision.step !== pendingApprovalStep) {
+          setStepStatus(
+            pendingApprovalStep,
+            "waiting",
+            state.steps[pendingApprovalStep]?.note ?? "Awaiting approval"
+          );
+          state.currentStep = pendingApprovalStep;
+          emitState(state);
+          emitApprovalRequired({
+            step: pendingApprovalStep,
+            label:
+              defaultSteps[pendingApprovalStep]?.label ?? pendingApprovalStep,
+            state,
+            emit,
+          });
+          return {
+            state,
+            summary: `Awaiting approval for ${
+              defaultSteps[pendingApprovalStep]?.label ?? pendingApprovalStep
+            }`,
+            completedStep: pendingApprovalStep,
+          };
+        }
+
+        if (approvalDecision.status === "approved") {
+          setStepStatus(pendingApprovalStep, "success");
+          state.awaitingApproval = false;
+          state.pendingApprovalStep = null;
+          state.feedback = null;
+          pushLog(
+            `${defaultSteps[pendingApprovalStep]?.label ?? pendingApprovalStep} approved by human reviewer.`
+          );
+        } else {
+          setStepStatus(
+            pendingApprovalStep,
+            "error",
+            approvalDecision.feedback ?? "Changes requested by human reviewer."
+          );
+          state.awaitingApproval = false;
+          state.pendingApprovalStep = null;
+          state.feedback = approvalDecision.feedback ?? "Changes requested by reviewer.";
+          emitState(state);
+          emit("approval-rejected", {
+            stepId: pendingApprovalStep,
+            feedback: approvalDecision.feedback ?? null,
+          });
+          return {
+            state,
+            summary: `Approval rejected for ${defaultSteps[pendingApprovalStep]?.label ?? pendingApprovalStep}`,
+            completedStep: pendingApprovalStep,
+          };
+        }
+      }
+
+      const prompt = extractLatestUserPromptFromInput(input, state);
+
       try {
         for (let index = 0; index < STEPS.length; index += 1) {
           const step = STEPS[index]!;
+          if (state.steps[step.id]?.status === "success") {
+            continue;
+          }
+
+          // Skip fix step if there are no errors
+          if (step.id === "fix") {
+            const buildStep = state.steps["build"];
+            if (buildStep?.status === "success") {
+              // No errors, skip the fix step entirely
+              continue;
+            }
+          }
+
           setStepStatus(step.id, "running");
           state.currentStep = step.id;
           emitState(state);
 
           switch (step.id) {
             case "spec": {
-              const spec = generateSpec(prompt);
-              state.prd = spec;
-              pushArtifact({
-                path: "docs/specs/PRD.md",
-                title: "Product Requirements",
-                language: "markdown",
-                contents: spec,
-              });
+              // Step 1: Ask clarification questions if not asked yet
+              if (!state.clarificationAsked) {
+                pushLog("Gathering requirements for your project...");
+                setStepStatus("spec", "waiting", "Awaiting clarification");
+                state.awaitingApproval = true;
+                state.pendingApprovalStep = "spec";
+                emitState(state);
+                emit("clarification-required", {
+                  stepId: "spec",
+                  questions: [
+                    {
+                      id: "userRoles",
+                      question: "User roles - Do you need different access levels (admin, doctors, patients, receptionists)?",
+                    },
+                    {
+                      id: "keyFeatures",
+                      question: "Key features - What's most important? (e.g., Patient registration, Appointment scheduling, Doctor/staff management, Calendar views, Notifications)",
+                    },
+                    {
+                      id: "authentication",
+                      question: "Authentication - Do users need to log in, or is this an internal admin-only tool?",
+                    },
+                    {
+                      id: "database",
+                      question: "Database - Do you want to use a specific database (Supabase, Neon, etc.)?",
+                    },
+                    {
+                      id: "priority",
+                      question: "What's your priority for this system? (Simple version or Full version with multi-role system)",
+                    },
+                  ],
+                });
+                updateProgress(index);
+                return {
+                  state,
+                  summary: "Awaiting clarification for PRD",
+                  completedStep: "spec",
+                };
+              }
+
+              // Step 2: If clarification received, store it and generate PRD
+              if (clarificationResponse && !state.prd) {
+                state.clarificationAnswers = {
+                  ...state.clarificationAnswers,
+                  ...clarificationResponse,
+                };
+                state.clarificationAsked = true;
+                pushLog("Requirements gathered. Generating PRD...");
+
+                const spec = generateSpecWithClarification(prompt, state.clarificationAnswers);
+                state.prd = spec;
+                pushArtifact({
+                  path: "docs/specs/PRD.md",
+                  title: "Product Requirements",
+                  language: "markdown",
+                  contents: spec,
+                });
               emit("prd", { prd: spec });
               pushLog(`Spec generated for prompt: "${prompt}"`);
+              state.awaitingApproval = true;
+              state.pendingApprovalStep = "spec";
+              setStepStatus("spec", "waiting", "Awaiting human approval");
+              emitState(state);
+              emitApprovalRequired({
+                step: "spec",
+                label: defaultSteps.spec.label,
+                state,
+                emit,
+                note: "Review the PRD draft and approve to continue.",
+              });
+              updateProgress(index);
+              return {
+                state,
+                summary: `Awaiting approval for ${defaultSteps.spec.label}`,
+                completedStep: "spec",
+                };
+              }
+
+              // Step 3: If no clarification response yet, wait
+              if (!state.prd) {
+                setStepStatus("spec", "waiting", "Awaiting clarification");
+                emitState(state);
+                return {
+                  state,
+                  summary: "Awaiting clarification for PRD",
+                  completedStep: "spec",
+                };
+              }
+
               break;
             }
             case "schema": {
@@ -213,6 +369,8 @@ export function createV0GeneratorAssistant() {
         }
 
         state.currentStep = "approval";
+        state.awaitingApproval = false;
+        state.pendingApprovalStep = null;
         emitState(state);
 
         return {
@@ -230,6 +388,158 @@ export function createV0GeneratorAssistant() {
       }
     },
   };
+}
+
+function initializeState(previous?: ThreadValues): ThreadValues {
+  const base = previous ?? initialGeneratorState;
+  return {
+    ...initialGeneratorState,
+    ...base,
+    steps: mergeSteps(base.steps),
+    logs: Array.isArray(base.logs) ? [...base.logs] : [],
+    artifacts: Array.isArray(base.artifacts) ? [...base.artifacts] : [],
+    awaitingApproval: Boolean(base.awaitingApproval),
+    pendingApprovalStep: base.pendingApprovalStep ?? null,
+    clarificationAsked: Boolean(base.clarificationAsked),
+    clarificationAnswers: base.clarificationAnswers ?? {},
+  };
+}
+
+function mergeSteps(existing?: Record<string, StepStatus>): Record<string, StepStatus> {
+  const merged: Record<string, StepStatus> = {};
+
+  for (const [id, step] of Object.entries(defaultSteps)) {
+    const existingStep = existing?.[id];
+    merged[id] = {
+      id: step.id,
+      label: step.label,
+      status: existingStep?.status ?? step.status,
+      note: existingStep?.note,
+    };
+  }
+
+  if (existing) {
+    for (const [id, step] of Object.entries(existing)) {
+      if (!merged[id]) {
+        merged[id] = { ...step };
+      }
+    }
+  }
+
+  return merged;
+}
+
+type ApprovalDecision = {
+  step: StepId;
+  status: "approved" | "rejected";
+  feedback?: string;
+};
+
+function parseApprovalDecision(input: Record<string, unknown>): ApprovalDecision | null {
+  const rawApproval = (input as { approval?: unknown }).approval;
+  if (!rawApproval || typeof rawApproval !== "object") {
+    return null;
+  }
+
+  const approval = rawApproval as Record<string, unknown>;
+  const step = approval.step;
+  const status = approval.status;
+
+  if (!isStepId(step)) {
+    return null;
+  }
+
+  if (status !== "approved" && status !== "rejected") {
+    return null;
+  }
+
+  const feedback =
+    typeof approval.feedback === "string" && approval.feedback.trim().length > 0
+      ? approval.feedback.trim()
+      : undefined;
+
+  return {
+    step,
+    status,
+    feedback,
+  };
+}
+
+function isStepId(value: unknown): value is StepId {
+  return typeof value === "string" && value in defaultSteps;
+}
+
+function emitApprovalRequired({
+  step,
+  label,
+  state,
+  emit,
+  note,
+}: {
+  step: StepId;
+  label: string;
+  state: ThreadValues;
+  emit: RunContext["emit"];
+  note?: string;
+}) {
+  const message =
+    note ??
+    `Awaiting approval for ${label}. Review the draft below and approve to continue.`;
+
+  emit("approval-required", {
+    stepId: step,
+    label,
+    message,
+    artifactPath: state.artifacts.find(
+      (artifact) => artifact.path === "docs/specs/PRD.md"
+    )?.path,
+    excerpt: buildExcerpt(state.prd),
+  });
+}
+
+function buildExcerpt(prd?: string | null): string | undefined {
+  if (!prd) {
+    return undefined;
+  }
+
+  const excerpt = prd.split("\n").slice(0, 10).join("\n").trim();
+  return excerpt.length > 0 ? excerpt : undefined;
+}
+
+type ClarificationResponse = {
+  userRoles?: string;
+  keyFeatures?: string;
+  authentication?: string;
+  database?: string;
+  priority?: string;
+};
+
+function parseClarificationResponse(input: Record<string, unknown>): ClarificationResponse | null {
+  const rawClarification = (input as { clarification?: unknown }).clarification;
+  if (!rawClarification || typeof rawClarification !== "object") {
+    return null;
+  }
+
+  const clarification = rawClarification as Record<string, unknown>;
+  const result: ClarificationResponse = {};
+
+  if (typeof clarification.userRoles === "string") {
+    result.userRoles = clarification.userRoles;
+  }
+  if (typeof clarification.keyFeatures === "string") {
+    result.keyFeatures = clarification.keyFeatures;
+  }
+  if (typeof clarification.authentication === "string") {
+    result.authentication = clarification.authentication;
+  }
+  if (typeof clarification.database === "string") {
+    result.database = clarification.database;
+  }
+  if (typeof clarification.priority === "string") {
+    result.priority = clarification.priority;
+  }
+
+  return Object.keys(result).length > 0 ? result : null;
 }
 
 function extractLatestUserPromptFromInput(
@@ -304,7 +614,41 @@ ${modules.map((module) => `- ${module}`).join("\n")}
 `;
 }
 
-function generateSchema(spec: string, prompt: string): string {
+function generateSpecWithClarification(prompt: string, answers: Record<string, string>): string {
+  const title = toTitleCase(prompt.split(/[.!?\n]/)[0] ?? "Generated App");
+  const modules = inferModules(prompt);
+
+  return `# ${title}
+
+## Overview
+- Requested: ${prompt}
+- Type: ${answers.priority || "Full-featured application"}
+- Modules detected: ${modules.join(", ")}
+
+## User Roles
+${answers.userRoles || "Standard user roles"}
+
+## Key Features
+${answers.keyFeatures || modules.map((module) => `- ${module}`).join("\n")}
+
+## Authentication
+${answers.authentication || "Standard authentication required"}
+
+## Database
+${answers.database || "Default database configuration"}
+
+## Personas
+- Operator: manages day-to-day records
+- Manager: reviews performance metrics and approvals
+- Developer: maintains integrations and automations
+
+## Technical Requirements
+- Authentication & RBAC, audit logs, responsive UI, instrumentation hooks
+- Database: ${answers.database || "SQLite (default)"}
+`;
+}
+
+function generateSchema(_spec: string, prompt: string): string {
   const modules = inferModules(prompt);
   const entities = modules.slice(0, 4).map((module) => toTitleCase(module.slice(0, -1)));
   const schemaLines = entities.map((entity) => {
