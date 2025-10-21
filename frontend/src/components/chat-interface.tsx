@@ -548,11 +548,6 @@ export function ChatInterface() {
               <p className="mt-1 text-sm text-muted-foreground whitespace-pre-wrap">
                 {pendingApproval.message}
               </p>
-              {pendingApproval.excerpt && (
-                <pre className="mt-3 rounded-md border border-border/60 bg-background/60 px-3 py-2 text-xs text-muted-foreground whitespace-pre-wrap">
-                  {pendingApproval.excerpt}
-                </pre>
-              )}
             </div>
 
             {componentState.prd && (
