@@ -10,6 +10,7 @@ import {
   type StepStatus,
 } from "../app/providers";
 import { StepsTimeline } from "./steps-timeline";
+import { ProgressiveThinking, StatusUpdate } from "./progressive-thinking";
 
 const BACKEND_URL =
   process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
@@ -68,9 +69,37 @@ export function ChatInterface() {
     useState<PendingApprovalInfo | null>(null);
   const [clarificationPrompt, setClarificationPrompt] =
     useState<ClarificationPrompt | null>(null);
+  
+  // Progressive thinking states
+  const [currentThinkingStep, setCurrentThinkingStep] = useState<string | undefined>(undefined);
+  const [thinkingStartTime, setThinkingStartTime] = useState<number | null>(null);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [statusUpdates, setStatusUpdates] = useState<Array<{ id: string; message: string; timestamp: number }>>([]);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const threadIdRef = useRef<string | null>(null);
+  const statusIdCounterRef = useRef<number>(0);
+
+  // Timer for elapsed seconds
+  useEffect(() => {
+    if (!isLoading || !thinkingStartTime) {
+      return;
+    }
+
+    const interval = setInterval(() => {
+      const elapsed = Math.floor((Date.now() - thinkingStartTime) / 1000);
+      setElapsedSeconds(elapsed);
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [isLoading, thinkingStartTime]);
+
+  // Update thinking step based on current step
+  useEffect(() => {
+    if (isLoading && componentState.currentStep) {
+      setCurrentThinkingStep(componentState.currentStep);
+    }
+  }, [isLoading, componentState.currentStep]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -177,9 +206,13 @@ export function ChatInterface() {
         setPendingApproval(null);
         setClarificationPrompt(null);
         setComponentState(createInitialComponentState());
+        setStatusUpdates([]);
+        setCurrentThinkingStep(undefined);
       }
 
       setIsLoading(true);
+      setThinkingStartTime(Date.now());
+      setElapsedSeconds(0);
 
       try {
         const response = await fetch(
@@ -236,10 +269,32 @@ export function ChatInterface() {
           switch (eventName) {
             case "run-started":
               appendLog("Pipeline started");
+              setStatusUpdates(prev => [...prev, {
+                id: `status-${Date.now()}-${statusIdCounterRef.current++}`,
+                message: "Started generation pipeline",
+                timestamp: Date.now()
+              }]);
               break;
             case "step-status":
               if (payload) {
                 updateStepStatus(payload as StepStatus);
+                // Add status update for new steps
+                if (payload.status === "running") {
+                  const stepLabels: Record<string, string> = {
+                    spec: "Analyzing requirements",
+                    schema: "Designing data schema",
+                    ui: "Scaffolding UI components",
+                    apis: "Building API endpoints",
+                    build: "Compiling application",
+                    fix: "Running auto-fix",
+                  };
+                  const label = stepLabels[payload.id] || `Processing ${payload.id}`;
+                  setStatusUpdates(prev => [...prev, {
+                    id: `status-${Date.now()}-${statusIdCounterRef.current++}`,
+                    message: label,
+                    timestamp: Date.now()
+                  }]);
+                }
               }
               break;
             case "progress":
@@ -642,16 +697,29 @@ export function ChatInterface() {
 
         <StepsTimeline />
 
+        {/* Status updates */}
+        {statusUpdates.slice(-3).map((update) => (
+          <StatusUpdate 
+            key={update.id} 
+            message={update.message}
+            type="success"
+          />
+        ))}
+
+        {/* Progressive thinking indicator */}
         {isLoading && (
-          <div className="flex justify-start">
-            <div className="bg-muted rounded-lg px-4 py-2">
-              <div className="flex items-center gap-2">
-                <div className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce" />
-                <div className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce [animation-delay:0.2s]" />
-                <div className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce [animation-delay:0.4s]" />
-              </div>
-            </div>
-          </div>
+          <ProgressiveThinking 
+            currentStep={currentThinkingStep}
+            elapsedTime={elapsedSeconds}
+            steps={[
+              { id: "spec", label: "Analyzing requirements", status: "pending" },
+              { id: "schema", label: "Designing data schema", status: "pending" },
+              { id: "ui", label: "Scaffolding components", status: "pending" },
+              { id: "apis", label: "Building APIs", status: "pending" },
+              { id: "build", label: "Compiling app", status: "pending" },
+              { id: "fix", label: "Running auto-fix", status: "pending" },
+            ]}
+          />
         )}
 
         <div ref={messagesEndRef} />
