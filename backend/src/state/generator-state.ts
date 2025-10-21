@@ -27,8 +27,6 @@ export const generatorStateSchema = z.object({
   progress: z.number().min(0).max(100),
   awaitingApproval: z.boolean().optional().default(false),
   pendingApprovalStep: z.string().nullable().optional(),
-  clarificationAsked: z.boolean().optional().default(false),
-  clarificationAnswers: z.record(z.string()).optional(),
 });
 
 export type StepStatus = z.infer<typeof stepStatusSchema>;
@@ -137,6 +135,4 @@ export const initialGeneratorState: GeneratorState = {
   progress: 0,
   awaitingApproval: false,
   pendingApprovalStep: null,
-  clarificationAsked: false,
-  clarificationAnswers: {},
 };

@@ -29,36 +29,10 @@ interface PendingApprovalInfo {
   excerpt?: string;
 }
 
-interface ClarificationPrompt {
-  stepId: string;
-  questions: Array<{ id: string; question: string }>;
-}
-
 type StreamPayload = {
   assistant_id: string;
   input: Record<string, unknown>;
 };
-
-function buildClarificationPayload(
-  answer: string,
-  prompt: ClarificationPrompt | null
-): Record<string, string> | undefined {
-  if (!prompt) {
-    return undefined;
-  }
-
-  const normalized = answer.trim();
-  if (!normalized) {
-    return undefined;
-  }
-
-  const entries = prompt.questions.map((question, index) => [
-    question.id || `q${index + 1}`,
-    normalized,
-  ]);
-
-  return Object.fromEntries(entries);
-}
 
 export function ChatInterface() {
   const { componentState, setComponentState } = useComponentState();
@@ -67,8 +41,6 @@ export function ChatInterface() {
   const [isLoading, setIsLoading] = useState(false);
   const [pendingApproval, setPendingApproval] =
     useState<PendingApprovalInfo | null>(null);
-  const [clarificationPrompt, setClarificationPrompt] =
-    useState<ClarificationPrompt | null>(null);
   
   // Progressive thinking states
   const [currentThinkingStep, setCurrentThinkingStep] = useState<string | undefined>(undefined);
@@ -103,7 +75,7 @@ export function ChatInterface() {
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, pendingApproval, clarificationPrompt]);
+  }, [messages, pendingApproval]);
 
   useEffect(() => {
     if (!componentState.awaitingApproval) {
@@ -204,7 +176,6 @@ export function ChatInterface() {
 
       if (resetState) {
         setPendingApproval(null);
-        setClarificationPrompt(null);
         setComponentState(createInitialComponentState());
         setStatusUpdates([]);
         setCurrentThinkingStep(undefined);
@@ -331,46 +302,6 @@ export function ChatInterface() {
                 applyIncomingState(payload as Partial<ComponentState>);
               }
               break;
-            case "clarification-required": {
-              const questions = Array.isArray(payload?.questions)
-                ? payload.questions
-                    .map((question: any, index: number) => {
-                      if (typeof question === "string") {
-                        return { id: `question-${index}`, question };
-                      }
-                      if (
-                        question &&
-                        typeof question === "object" &&
-                        typeof question.id === "string" &&
-                        typeof question.question === "string"
-                      ) {
-                        return {
-                          id: question.id,
-                          question: question.question,
-                        };
-                      }
-                      return null;
-                    })
-                    .filter(
-                      (item): item is { id: string; question: string } =>
-                        item !== null
-                    )
-                : [];
-
-              if (questions.length > 0) {
-                const prompt: ClarificationPrompt = {
-                  stepId:
-                    typeof payload?.stepId === "string"
-                      ? payload.stepId
-                      : "spec",
-                  questions,
-                };
-                setClarificationPrompt(prompt);
-                assistantSummary = "Awaiting clarification for PRD";
-                summaryPushed = true;
-              }
-              break;
-            }
             case "approval-required": {
               const info: PendingApprovalInfo = {
                 stepId:
@@ -505,14 +436,6 @@ export function ChatInterface() {
     const content = input.trim();
     setInput("");
 
-    const clarificationPayload = buildClarificationPayload(
-      content,
-      clarificationPrompt
-    );
-    if (clarificationPayload) {
-      setClarificationPrompt(null);
-    }
-
     await streamRun({
       payload: {
         assistant_id: "v0-generator",
@@ -523,7 +446,6 @@ export function ChatInterface() {
               content: [{ type: "text", text: content }],
             },
           ],
-          ...(clarificationPayload ? { clarification: clarificationPayload } : {}),
         },
       },
       userMessage: {
@@ -531,7 +453,7 @@ export function ChatInterface() {
         role: "user",
         content,
       },
-      resetState: !clarificationPayload,
+      resetState: true,
     });
   };
 
@@ -616,38 +538,6 @@ export function ChatInterface() {
             </div>
           </div>
         ))}
-
-        {clarificationPrompt && (
-          <div className="rounded-xl border border-border/80 bg-background p-6 shadow-sm space-y-4">
-            <div className="space-y-1">
-              <h3 className="text-base font-semibold text-foreground">
-                Let us align on the requirements before I draft the PRD.
-              </h3>
-              <p className="text-sm text-muted-foreground">
-                Share everything in a single reply or answer question-by-question—I will keep the thread organized either way.
-              </p>
-            </div>
-
-            <ol className="space-y-3">
-              {clarificationPrompt.questions.map((question, index) => (
-                <li key={question.id} className="rounded-lg bg-muted/20 px-4 py-3">
-                  <div className="flex items-start gap-3">
-                    <span className="text-sm font-semibold text-primary">
-                      {index + 1}.
-                    </span>
-                    <span className="text-sm leading-relaxed text-foreground">
-                      {question.question}
-                    </span>
-                  </div>
-                </li>
-              ))}
-            </ol>
-
-            <p className="text-xs text-muted-foreground/80">
-              Tip: rapid-fire answers work great—I will parse the intent as soon as you send them.
-            </p>
-          </div>
-        )}
 
         {pendingApproval && (
           <div className="rounded-lg border border-border bg-muted/30 p-4 space-y-3">

@@ -132,7 +132,6 @@ export function createV0GeneratorAssistant() {
       };
 
       const approvalDecision = parseApprovalDecision(input);
-      const clarificationResponse = parseClarificationResponse(input);
       const pendingApprovalStep = (state.pendingApprovalStep ?? null) as StepId | null;
       const awaitingHardApproval =
         state.awaitingApproval &&
@@ -218,65 +217,17 @@ export function createV0GeneratorAssistant() {
 
           switch (step.id) {
             case "spec": {
-              // Step 1: Ask clarification questions if not asked yet
-              if (!state.clarificationAsked) {
-                pushLog("Gathering requirements for your project...");
-                setStepStatus("spec", "waiting", "Awaiting clarification");
-                state.awaitingApproval = true;
-                state.pendingApprovalStep = "spec";
-                emitState(state);
-                emit("clarification-required", {
-                  stepId: "spec",
-                  questions: [
-                    {
-                      id: "userRoles",
-                      question: "User roles - Do you need different access levels (admin, doctors, patients, receptionists)?",
-                    },
-                    {
-                      id: "keyFeatures",
-                      question: "Key features - What's most important? (e.g., Patient registration, Appointment scheduling, Doctor/staff management, Calendar views, Notifications)",
-                    },
-                    {
-                      id: "authentication",
-                      question: "Authentication - Do users need to log in, or is this an internal admin-only tool?",
-                    },
-                    {
-                      id: "database",
-                      question: "Database - Do you want to use a specific database (Supabase, Neon, etc.)?",
-                    },
-                    {
-                      id: "priority",
-                      question: "What's your priority for this system? (Simple version or Full version with multi-role system)",
-                    },
-                  ],
-                });
-                updateProgress(index);
-                return {
-                  state,
-                  summary: "Awaiting clarification for PRD",
-                  completedStep: "spec",
-                };
-              }
-
-              // Step 2: If clarification received, store it and generate PRD
-              if (clarificationResponse && !state.prd) {
-                state.clarificationAnswers = {
-                  ...state.clarificationAnswers,
-                  ...clarificationResponse,
-                };
-                state.clarificationAsked = true;
-                pushLog("Requirements gathered. Generating PRD...");
-
-                const spec = generateSpecWithClarification(prompt, state.clarificationAnswers);
-                state.prd = spec;
-                pushArtifact({
-                  path: "docs/specs/PRD.md",
-                  title: "Product Requirements",
-                  language: "markdown",
-                  contents: spec,
-                });
+              pushLog("Analyzing your requirements and generating PRD...");
+              const spec = generateSpec(prompt);
+              state.prd = spec;
+              pushArtifact({
+                path: "docs/specs/PRD.md",
+                title: "Product Requirements",
+                language: "markdown",
+                contents: spec,
+              });
               emit("prd", { prd: spec });
-              pushLog(`Spec generated for prompt: "${prompt}"`);
+              pushLog(`PRD generated. Please review and approve.`);
               state.awaitingApproval = true;
               state.pendingApprovalStep = "spec";
               setStepStatus("spec", "waiting", "Awaiting human approval");
@@ -293,21 +244,7 @@ export function createV0GeneratorAssistant() {
                 state,
                 summary: `Awaiting approval for ${defaultSteps.spec.label}`,
                 completedStep: "spec",
-                };
-              }
-
-              // Step 3: If no clarification response yet, wait
-              if (!state.prd) {
-                setStepStatus("spec", "waiting", "Awaiting clarification");
-                emitState(state);
-                return {
-                  state,
-                  summary: "Awaiting clarification for PRD",
-                  completedStep: "spec",
-                };
-              }
-
-              break;
+              };
             }
             case "schema": {
               const schema = generateSchema(state.prd ?? "", prompt);
@@ -400,8 +337,6 @@ function initializeState(previous?: ThreadValues): ThreadValues {
     artifacts: Array.isArray(base.artifacts) ? [...base.artifacts] : [],
     awaitingApproval: Boolean(base.awaitingApproval),
     pendingApprovalStep: base.pendingApprovalStep ?? null,
-    clarificationAsked: Boolean(base.clarificationAsked),
-    clarificationAnswers: base.clarificationAnswers ?? {},
   };
 }
 
@@ -506,42 +441,6 @@ function buildExcerpt(prd?: string | null): string | undefined {
   return excerpt.length > 0 ? excerpt : undefined;
 }
 
-type ClarificationResponse = {
-  userRoles?: string;
-  keyFeatures?: string;
-  authentication?: string;
-  database?: string;
-  priority?: string;
-};
-
-function parseClarificationResponse(input: Record<string, unknown>): ClarificationResponse | null {
-  const rawClarification = (input as { clarification?: unknown }).clarification;
-  if (!rawClarification || typeof rawClarification !== "object") {
-    return null;
-  }
-
-  const clarification = rawClarification as Record<string, unknown>;
-  const result: ClarificationResponse = {};
-
-  if (typeof clarification.userRoles === "string") {
-    result.userRoles = clarification.userRoles;
-  }
-  if (typeof clarification.keyFeatures === "string") {
-    result.keyFeatures = clarification.keyFeatures;
-  }
-  if (typeof clarification.authentication === "string") {
-    result.authentication = clarification.authentication;
-  }
-  if (typeof clarification.database === "string") {
-    result.database = clarification.database;
-  }
-  if (typeof clarification.priority === "string") {
-    result.priority = clarification.priority;
-  }
-
-  return Object.keys(result).length > 0 ? result : null;
-}
-
 function extractLatestUserPromptFromInput(
   input: Record<string, unknown>,
   previousValues: ThreadValues
@@ -611,40 +510,6 @@ ${modules.map((module) => `- ${module}`).join("\n")}
 
 ## Non-Functional Requirements
 - Authentication & RBAC, audit logs, responsive UI, instrumentation hooks
-`;
-}
-
-function generateSpecWithClarification(prompt: string, answers: Record<string, string>): string {
-  const title = toTitleCase(prompt.split(/[.!?\n]/)[0] ?? "Generated App");
-  const modules = inferModules(prompt);
-
-  return `# ${title}
-
-## Overview
-- Requested: ${prompt}
-- Type: ${answers.priority || "Full-featured application"}
-- Modules detected: ${modules.join(", ")}
-
-## User Roles
-${answers.userRoles || "Standard user roles"}
-
-## Key Features
-${answers.keyFeatures || modules.map((module) => `- ${module}`).join("\n")}
-
-## Authentication
-${answers.authentication || "Standard authentication required"}
-
-## Database
-${answers.database || "Default database configuration"}
-
-## Personas
-- Operator: manages day-to-day records
-- Manager: reviews performance metrics and approvals
-- Developer: maintains integrations and automations
-
-## Technical Requirements
-- Authentication & RBAC, audit logs, responsive UI, instrumentation hooks
-- Database: ${answers.database || "SQLite (default)"}
 `;
 }
 
