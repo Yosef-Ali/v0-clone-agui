@@ -1,5 +1,5 @@
-import { StateGraph, END, type CompiledStateGraph } from "@langchain/langgraph";
-import type { SupervisorState, ComponentStateType } from "../../state/generator-state.js";
+import { StateGraph, END, START } from "@langchain/langgraph";
+import type { ComponentStateType } from "../../state/generator-state.js";
 import { getDeepSeekClient } from "../../utils/deepseek-client.js";
 import { logger } from "../../utils/logger.js";
 
@@ -9,12 +9,25 @@ import { logger } from "../../utils/logger.js";
  * Generates production-ready React/Tailwind code from design spec
  */
 
-interface CodeGeneratorState extends SupervisorState {}
+// Use partial state for subgraph to avoid strict type checking issues
+interface CodeGeneratorState {
+  messages?: any[];
+  currentStep?: any;
+  requirements?: any;
+  designSpec?: any;
+  componentState?: any;
+  userApproval?: boolean;
+  feedback?: string | null;
+  iterationCount?: number;
+  sessionId?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
 
 /**
  * Generate component code
  */
-async function generateCodeNode(state: CodeGeneratorState): Promise<Partial<SupervisorState>> {
+async function generateCodeNode(state: CodeGeneratorState): Promise<Partial<CodeGeneratorState>> {
   logger.info("[CodeGenerator] Generating component code");
 
   if (!state.designSpec || !state.requirements) {
@@ -78,17 +91,19 @@ Generate ONLY the HTML markup with inline <script> for interactivity.
 /**
  * Create the Code Generator subgraph
  */
-export function createCodeGeneratorGraph(): CompiledStateGraph<any, any> {
-  const workflow = new StateGraph<CodeGeneratorState>({
+export function createCodeGeneratorGraph(): any {
+  const workflow: any = new StateGraph<CodeGeneratorState>({
     channels: {
       messages: {
-        value: (left: any[], right: any[]) => {
+        value: (left?: any[], right?: any[]) => {
           // Only pass through, don't duplicate
-          return right !== undefined ? right : left;
+          return right !== undefined ? right : (left || []);
         },
+        default: () => [],
       },
       currentStep: {
         value: (left: any, right: any) => right || left,
+        default: () => "code",
       },
       requirements: {
         value: (left: any, right: any) => right || left,
@@ -99,11 +114,35 @@ export function createCodeGeneratorGraph(): CompiledStateGraph<any, any> {
       componentState: {
         value: (left: any, right: any) => right || left,
       },
+      userApproval: {
+        value: (left: any, right: any) => right !== undefined ? right : left,
+        default: () => false,
+      },
+      feedback: {
+        value: (left: any, right: any) => right !== undefined ? right : left,
+        default: () => null,
+      },
+      iterationCount: {
+        value: (left: any, right: any) => right !== undefined ? right : left,
+        default: () => 0,
+      },
+      sessionId: {
+        value: (left: any, right: any) => right || left,
+        default: () => "",
+      },
+      createdAt: {
+        value: (left: any, right: any) => right || left,
+        default: () => new Date().toISOString(),
+      },
+      updatedAt: {
+        value: (left: any, right: any) => right || left,
+        default: () => new Date().toISOString(),
+      },
     },
   });
 
   workflow.addNode("generate", generateCodeNode);
-  workflow.setEntryPoint("generate");
+  workflow.addEdge(START, "generate");
   workflow.addEdge("generate", END);
 
   return workflow.compile();

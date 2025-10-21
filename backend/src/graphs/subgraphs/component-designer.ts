@@ -1,5 +1,5 @@
-import { StateGraph, END, type CompiledStateGraph } from "@langchain/langgraph";
-import type { SupervisorState, DesignSpec } from "../../state/generator-state.js";
+import { StateGraph, END, START } from "@langchain/langgraph";
+import type { DesignSpec } from "../../state/generator-state.js";
 import { logger } from "../../utils/logger.js";
 
 /**
@@ -8,12 +8,25 @@ import { logger } from "../../utils/logger.js";
  * Designs the component structure and layout based on requirements
  */
 
-interface ComponentDesignerState extends SupervisorState {}
+// Use partial state for subgraph to avoid strict type checking issues
+interface ComponentDesignerState {
+  messages?: any[];
+  currentStep?: any;
+  requirements?: any;
+  designSpec?: any;
+  componentState?: any;
+  userApproval?: boolean;
+  feedback?: string | null;
+  iterationCount?: number;
+  sessionId?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
 
 /**
  * Design component structure
  */
-async function designComponentNode(state: ComponentDesignerState): Promise<Partial<SupervisorState>> {
+async function designComponentNode(state: ComponentDesignerState): Promise<Partial<ComponentDesignerState>> {
   logger.info("[ComponentDesigner] Designing component structure");
 
   if (!state.requirements) {
@@ -55,7 +68,7 @@ async function designComponentNode(state: ComponentDesignerState): Promise<Parti
         ],
       },
     },
-    interactions: features.map((feature) => ({
+    interactions: features.map((feature: string) => ({
       trigger: "click",
       action: `handle${feature.replace(/\s+/g, "")}`,
       target: feature,
@@ -73,17 +86,19 @@ async function designComponentNode(state: ComponentDesignerState): Promise<Parti
 /**
  * Create the Component Designer subgraph
  */
-export function createComponentDesignerGraph(): CompiledStateGraph<any, any> {
-  const workflow = new StateGraph<ComponentDesignerState>({
+export function createComponentDesignerGraph(): any {
+  const workflow: any = new StateGraph<ComponentDesignerState>({
     channels: {
       messages: {
-        value: (left: any[], right: any[]) => {
+        value: (left?: any[], right?: any[]) => {
           // Only pass through, don't duplicate
-          return right !== undefined ? right : left;
+          return right !== undefined ? right : (left || []);
         },
+        default: () => [],
       },
       currentStep: {
         value: (left: any, right: any) => right || left,
+        default: () => "design",
       },
       requirements: {
         value: (left: any, right: any) => right || left,
@@ -91,11 +106,38 @@ export function createComponentDesignerGraph(): CompiledStateGraph<any, any> {
       designSpec: {
         value: (left: any, right: any) => right || left,
       },
+      componentState: {
+        value: (left: any, right: any) => right || left,
+      },
+      userApproval: {
+        value: (left: any, right: any) => right !== undefined ? right : left,
+        default: () => false,
+      },
+      feedback: {
+        value: (left: any, right: any) => right !== undefined ? right : left,
+        default: () => null,
+      },
+      iterationCount: {
+        value: (left: any, right: any) => right !== undefined ? right : left,
+        default: () => 0,
+      },
+      sessionId: {
+        value: (left: any, right: any) => right || left,
+        default: () => "",
+      },
+      createdAt: {
+        value: (left: any, right: any) => right || left,
+        default: () => new Date().toISOString(),
+      },
+      updatedAt: {
+        value: (left: any, right: any) => right || left,
+        default: () => new Date().toISOString(),
+      },
     },
   });
 
   workflow.addNode("design", designComponentNode);
-  workflow.setEntryPoint("design");
+  workflow.addEdge(START, "design");
   workflow.addEdge("design", END);
 
   return workflow.compile();
