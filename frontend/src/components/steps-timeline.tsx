@@ -17,7 +17,7 @@ const STEPS: Array<{ id: string; label: string }> = [
 export function StepsTimeline() {
   const { componentState } = useComponentState();
   const { steps, logs, progress, prd } = componentState;
-
+  const specStatus = steps["spec"]?.status ?? "queued";
 
   const visibleSteps = STEPS.filter((step) => {
     const status = steps[step.id]?.status ?? "queued";
@@ -43,7 +43,7 @@ export function StepsTimeline() {
   const hasStarted =
     progress > 0 || Object.values(steps).some((step) => step.status !== "queued");
 
-  if (!hasStarted || visibleSteps.length === 0) {
+  if (!hasStarted || visibleSteps.length === 0 || specStatus !== "success") {
     return null;
   }
 
@@ -69,7 +69,6 @@ export function StepsTimeline() {
           {visibleSteps.map((step) => {
             const status = steps[step.id]?.status ?? "queued";
             const note = steps[step.id]?.note;
-            const isActive = status === "running";
             return (
               <div
                 key={step.id}

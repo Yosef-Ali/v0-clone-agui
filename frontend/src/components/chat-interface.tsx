@@ -33,6 +33,18 @@ interface ClarificationPrompt {
   questions: Array<{ id: string; question: string }>;
 }
 
+function formatClarificationMessage(prompt: ClarificationPrompt) {
+  const intro =
+    "I need a bit more detail before drafting the PRD so we can capture the right requirements.";
+  const list = prompt.questions
+    .map((question, index) => `${index + 1}. ${question.question}`)
+    .join("\n");
+  const outro =
+    "Feel free to answer everything in one message or reply one-by-one—I will keep track.";
+
+  return `${intro}\n\n${list}\n\n${outro}`;
+}
+
 type StreamPayload = {
   assistant_id: string;
   input: Record<string, unknown>;
@@ -310,8 +322,26 @@ export function ChatInterface() {
                       : "spec",
                   questions,
                 };
+                const message = formatClarificationMessage(prompt);
+                setMessages((prev) => {
+                  const lastAssistant = [...prev]
+                    .reverse()
+                    .find((item) => item.role === "assistant");
+                  if (lastAssistant?.content === message) {
+                    return prev;
+                  }
+
+                  return [
+                    ...prev,
+                    {
+                      id: `${Date.now()}-clarification`,
+                      role: "assistant",
+                      content: message,
+                    },
+                  ];
+                });
                 setClarificationPrompt(prompt);
-                assistantSummary = "Awaiting clarification for PRD";
+                assistantSummary = message;
                 summaryPushed = true;
               }
               break;
@@ -563,30 +593,33 @@ export function ChatInterface() {
         ))}
 
         {clarificationPrompt && (
-          <div className="rounded-lg border border-border bg-muted/20 p-4 space-y-3">
-            <div>
-              <p className="text-sm font-semibold text-foreground">
-                We need a bit more detail before writing the PRD.
-              </p>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Share your answers in a single message or respond one-by-one.
+          <div className="rounded-xl border border-border/80 bg-background p-6 shadow-sm space-y-4">
+            <div className="space-y-1">
+              <h3 className="text-base font-semibold text-foreground">
+                Let us align on the requirements before I draft the PRD.
+              </h3>
+              <p className="text-sm text-muted-foreground">
+                Share everything in a single reply or answer question-by-question—I will keep the thread organized either way.
               </p>
             </div>
 
-            <ol className="space-y-2 text-sm text-muted-foreground">
+            <ol className="space-y-3">
               {clarificationPrompt.questions.map((question, index) => (
-                <li key={question.id} className="leading-relaxed">
-                  <span className="font-medium text-foreground">
-                    {index + 1}.
-                  </span>{" "}
-                  {question.question}
+                <li key={question.id} className="rounded-lg bg-muted/20 px-4 py-3">
+                  <div className="flex items-start gap-3">
+                    <span className="text-sm font-semibold text-primary">
+                      {index + 1}.
+                    </span>
+                    <span className="text-sm leading-relaxed text-foreground">
+                      {question.question}
+                    </span>
+                  </div>
                 </li>
               ))}
             </ol>
 
             <p className="text-xs text-muted-foreground/80">
-              Tip: you can paste rapid-fire answers; the assistant will parse
-              the intent and continue once ready.
+              Tip: rapid-fire answers work great—I will parse the intent as soon as you send them.
             </p>
           </div>
         )}
