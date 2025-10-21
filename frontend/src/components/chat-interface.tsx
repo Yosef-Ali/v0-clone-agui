@@ -10,7 +10,7 @@ import {
   type StepStatus,
 } from "../app/providers";
 import { StepsTimeline } from "./steps-timeline";
-import { ProgressiveThinking, StatusUpdate } from "./progressive-thinking";
+import { ProgressiveThinking } from "./progressive-thinking";
 
 const BACKEND_URL =
   process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
@@ -46,11 +46,9 @@ export function ChatInterface() {
   const [currentThinkingStep, setCurrentThinkingStep] = useState<string | undefined>(undefined);
   const [thinkingStartTime, setThinkingStartTime] = useState<number | null>(null);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
-  const [statusUpdates, setStatusUpdates] = useState<Array<{ id: string; message: string; timestamp: number }>>([]);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const threadIdRef = useRef<string | null>(null);
-  const statusIdCounterRef = useRef<number>(0);
 
   // Timer for elapsed seconds
   useEffect(() => {
@@ -177,7 +175,6 @@ export function ChatInterface() {
       if (resetState) {
         setPendingApproval(null);
         setComponentState(createInitialComponentState());
-        setStatusUpdates([]);
         setCurrentThinkingStep(undefined);
       }
 
@@ -240,32 +237,10 @@ export function ChatInterface() {
           switch (eventName) {
             case "run-started":
               appendLog("Pipeline started");
-              setStatusUpdates(prev => [...prev, {
-                id: `status-${Date.now()}-${statusIdCounterRef.current++}`,
-                message: "Started generation pipeline",
-                timestamp: Date.now()
-              }]);
               break;
             case "step-status":
               if (payload) {
                 updateStepStatus(payload as StepStatus);
-                // Add status update for new steps
-                if (payload.status === "running") {
-                  const stepLabels: Record<string, string> = {
-                    spec: "Analyzing requirements",
-                    schema: "Designing data schema",
-                    ui: "Scaffolding UI components",
-                    apis: "Building API endpoints",
-                    build: "Compiling application",
-                    fix: "Running auto-fix",
-                  };
-                  const label = stepLabels[payload.id] || `Processing ${payload.id}`;
-                  setStatusUpdates(prev => [...prev, {
-                    id: `status-${Date.now()}-${statusIdCounterRef.current++}`,
-                    message: label,
-                    timestamp: Date.now()
-                  }]);
-                }
               }
               break;
             case "progress":
@@ -581,15 +556,6 @@ export function ChatInterface() {
         )}
 
         <StepsTimeline />
-
-        {/* Status updates */}
-        {statusUpdates.slice(-3).map((update) => (
-          <StatusUpdate 
-            key={update.id} 
-            message={update.message}
-            type="success"
-          />
-        ))}
 
         {/* Progressive thinking indicator */}
         {isLoading && (
