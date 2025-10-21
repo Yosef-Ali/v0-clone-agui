@@ -33,18 +33,6 @@ interface ClarificationPrompt {
   questions: Array<{ id: string; question: string }>;
 }
 
-function formatClarificationMessage(prompt: ClarificationPrompt) {
-  const intro =
-    "I need a bit more detail before drafting the PRD so we can capture the right requirements.";
-  const list = prompt.questions
-    .map((question, index) => `${index + 1}. ${question.question}`)
-    .join("\n");
-  const outro =
-    "Feel free to answer everything in one message or reply one-by-one—I will keep track.";
-
-  return `${intro}\n\n${list}\n\n${outro}`;
-}
-
 type StreamPayload = {
   assistant_id: string;
   input: Record<string, unknown>;
@@ -322,26 +310,8 @@ export function ChatInterface() {
                       : "spec",
                   questions,
                 };
-                const message = formatClarificationMessage(prompt);
-                setMessages((prev) => {
-                  const lastAssistant = [...prev]
-                    .reverse()
-                    .find((item) => item.role === "assistant");
-                  if (lastAssistant?.content === message) {
-                    return prev;
-                  }
-
-                  return [
-                    ...prev,
-                    {
-                      id: `${Date.now()}-clarification`,
-                      role: "assistant",
-                      content: message,
-                    },
-                  ];
-                });
                 setClarificationPrompt(prompt);
-                assistantSummary = message;
+                assistantSummary = "Awaiting clarification for PRD";
                 summaryPushed = true;
               }
               break;
