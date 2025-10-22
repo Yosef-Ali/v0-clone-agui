@@ -475,6 +475,8 @@ export function ChatInterface() {
     [isLoading, pendingApproval]
   );
 
+  const showEmptyState = messages.length === 0 && !pendingApproval;
+
   return (
     <div className="h-full flex flex-col">
       <div className="p-4 border-b border-border bg-background">
@@ -484,96 +486,109 @@ export function ChatInterface() {
         </p>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-background">
-        {pendingApproval && (
-          <div className="rounded-lg border border-border bg-muted/30 p-4 space-y-3">
-            <div>
-              <p className="text-sm font-semibold text-foreground">
-                Awaiting approval: {pendingApproval.label}
-              </p>
-              <p className="mt-1 text-sm text-muted-foreground whitespace-pre-wrap">
-                {pendingApproval.message}
-              </p>
+      <div className="flex-1 overflow-y-auto bg-background">
+        <div className="flex h-full flex-col gap-4 p-4">
+          {pendingApproval && (
+            <div className="rounded-lg border-2 border-primary/20 bg-muted/30 p-5 space-y-4">
+              <div>
+                <p className="text-base font-semibold text-foreground">
+                  📋 Product Requirements Document
+                </p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Review the PRD draft below and approve to continue generation
+                </p>
+              </div>
+
+              {componentState.prd && (
+                <div className="rounded-md border border-border bg-background p-4">
+                  <h3 className="text-sm font-semibold text-foreground mb-3">PRD Draft</h3>
+                  <pre className="max-h-96 overflow-auto whitespace-pre-wrap text-sm text-foreground leading-relaxed">
+                    {componentState.prd}
+                  </pre>
+                </div>
+              )}
+
+              <div className="pt-2 border-t border-border">
+                <p className="text-xs text-muted-foreground mb-3">
+                  {pendingApproval.message}
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    onClick={() => handleApprovalDecision("approved")}
+                    disabled={isLoading}
+                    className="inline-flex items-center justify-center rounded-lg bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90 disabled:opacity-50"
+                  >
+                    ✓ Approve PRD
+                  </button>
+                  <button
+                    onClick={() => handleApprovalDecision("rejected")}
+                    disabled={isLoading}
+                    className="inline-flex items-center justify-center rounded-lg border-2 border-border px-5 py-2.5 text-sm font-semibold text-foreground transition hover:bg-muted disabled:opacity-50"
+                  >
+                    ✎ Request Changes
+                  </button>
+                </div>
+              </div>
             </div>
+          )}
 
-            {componentState.prd && (
-              <details className="rounded-md border border-border/60 bg-background/60 px-3 py-2">
-                <summary className="cursor-pointer text-sm font-medium">
-                  View PRD draft
-                </summary>
-                <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap text-xs text-muted-foreground">
-                  {componentState.prd}
-                </pre>
-              </details>
-            )}
-
-            <div className="flex flex-wrap gap-2">
-              <button
-                onClick={() => handleApprovalDecision("approved")}
-                disabled={isLoading}
-                className="inline-flex items-center justify-center rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition hover:bg-primary/90 disabled:opacity-50"
-              >
-                Approve PRD
-              </button>
-              <button
-                onClick={() => handleApprovalDecision("rejected")}
-                disabled={isLoading}
-                className="inline-flex items-center justify-center rounded-lg border border-border px-4 py-2 text-sm font-medium text-foreground transition hover:bg-muted disabled:opacity-50"
-              >
-                Request Changes
-              </button>
-            </div>
-          </div>
-        )}
-
-        {messages.length === 0 && !pendingApproval && (
-          <div className="text-center text-muted-foreground py-12">
-            <p className="text-lg">Hi! 👋</p>
-            <p className="mt-2">Describe the app you want to build...</p>
-            <p className="text-sm mt-4 text-muted-foreground/60">
-              e.g., Build a todo app with dark mode
-            </p>
-          </div>
-        )}
-
-        {messages.map((message) => (
           <div
-            key={message.id}
-            className={`flex ${
-              message.role === "user" ? "justify-end" : "justify-start"
+            className={`flex flex-1 flex-col gap-4 ${
+              showEmptyState ? "justify-center" : "justify-end"
             }`}
           >
-            <div
-              className={`max-w-[80%] rounded-lg px-4 py-2 ${
-                message.role === "user"
-                  ? "bg-primary text-primary-foreground"
-                  : "bg-muted"
-              }`}
-            >
-              <p className="text-sm whitespace-pre-wrap">{message.content}</p>
-            </div>
+            {showEmptyState && (
+              <div className="text-center text-muted-foreground py-12">
+                <p className="text-lg">Hi! 👋</p>
+                <p className="mt-2">Describe the app you want to build...</p>
+                <p className="text-sm mt-4 text-muted-foreground/60">
+                  e.g., Build a todo app with dark mode
+                </p>
+              </div>
+            )}
+
+            {messages.map((message) => (
+              <div
+                key={message.id}
+                className={`flex ${
+                  message.role === "user" ? "justify-end" : "justify-start"
+                }`}
+              >
+                <div
+                  className={`max-w-[80%] rounded-lg px-4 py-2 ${
+                    message.role === "user"
+                      ? "bg-primary text-primary-foreground"
+                      : "bg-muted"
+                  }`}
+                >
+                  <p className="text-sm whitespace-pre-wrap">
+                    {message.content}
+                  </p>
+                </div>
+              </div>
+            ))}
+
+            <StepsTimeline />
+
+            {/* Progressive thinking indicator */}
+            {isLoading && (
+              <ProgressiveThinking
+                currentStep={currentThinkingStep}
+                elapsedTime={elapsedSeconds}
+                steps={[
+                  { id: "spec", label: "Analyzing requirements", status: "pending" },
+                  { id: "schema", label: "Designing data schema", status: "pending" },
+                  { id: "ui", label: "Scaffolding components", status: "pending" },
+                  { id: "apis", label: "Building APIs", status: "pending" },
+                  { id: "build", label: "Compiling app", status: "pending" },
+                  { id: "fix", label: "Running auto-fix", status: "pending" },
+                ]}
+              />
+            )}
+
+            <div ref={messagesEndRef} />
           </div>
-        ))}
-
-        <StepsTimeline />
-
-        {/* Progressive thinking indicator */}
-        {isLoading && (
-          <ProgressiveThinking 
-            currentStep={currentThinkingStep}
-            elapsedTime={elapsedSeconds}
-            steps={[
-              { id: "spec", label: "Analyzing requirements", status: "pending" },
-              { id: "schema", label: "Designing data schema", status: "pending" },
-              { id: "ui", label: "Scaffolding components", status: "pending" },
-              { id: "apis", label: "Building APIs", status: "pending" },
-              { id: "build", label: "Compiling app", status: "pending" },
-              { id: "fix", label: "Running auto-fix", status: "pending" },
-            ]}
-          />
-        )}
-
-        <div ref={messagesEndRef} />
+        </div>
       </div>
 
       <form
