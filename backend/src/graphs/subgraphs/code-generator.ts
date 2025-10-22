@@ -37,20 +37,51 @@ async function generateCodeNode(state: CodeGeneratorState): Promise<Partial<Code
   const { requirements, designSpec } = state;
   const client = getDeepSeekClient();
 
-  const systemPrompt = `You are an expert React and Tailwind CSS developer.
-Generate a production-ready component based on the design specification.
+  const systemPrompt = `You are an expert React and Tailwind CSS developer specializing in creating beautiful, production-ready UI components.
 
-Requirements:
-${JSON.stringify(requirements, null, 2)}
+USER REQUEST: "${requirements.rawInput}"
 
-Design Spec:
-${JSON.stringify(designSpec, null, 2)}
+KEY REQUIREMENTS:
+${requirements.features.map((f: string) => `- ${f}`).join('\n')}
 
-Generate ONLY the HTML markup with inline <script> for interactivity.
-- Use Tailwind CSS utility classes
-- Include inline JavaScript in <script> tags
-- Make it interactive and responsive
-- Return ONLY the HTML, no markdown code blocks`;
+DESIGN CONSTRAINTS:
+- Theme: ${requirements.styling.theme}
+- Color Scheme: ${requirements.styling.colorScheme}
+- Layout Style: ${requirements.styling.layout}
+
+INSTRUCTIONS:
+1. Create a complete, self-contained HTML component with inline styles and scripts
+2. Use Tailwind CSS utility classes for all styling
+3. Implement full interactivity with vanilla JavaScript in <script> tags
+4. Follow these structure guidelines:
+   - Clean, semantic HTML5 markup
+   - Proper component hierarchy and organization
+   - Responsive design (mobile-first approach)
+   - Accessible (ARIA labels, keyboard navigation)
+   - Beautiful visual design with proper spacing and typography
+5. For a TODO app, include:
+   - Input field to add new todos
+   - List of todo items with checkboxes
+   - Delete button for each todo
+   - Dark mode support (if requested)
+   - Smooth animations and transitions
+   - Local storage persistence
+6. Return ONLY the HTML code - no markdown code blocks, no explanations
+7. Make sure all text is properly readable (no overlapping or garbled text)
+8. Use proper Tailwind spacing utilities (p-4, m-2, gap-3, etc.)
+9. Ensure all interactive elements have proper event handlers
+
+QUALITY CHECKLIST:
+✓ Clean, readable code structure
+✓ Proper indentation and formatting
+✓ All features from requirements implemented
+✓ Smooth user experience with animations
+✓ Responsive on all screen sizes
+✓ No overlapping text or broken layouts
+✓ Proper contrast and readability
+✓ Interactive elements work correctly
+
+Generate the complete HTML component now:`;
 
   try {
     const completion = await client.chat.completions.create({
