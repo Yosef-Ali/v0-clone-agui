@@ -488,50 +488,6 @@ export function ChatInterface() {
 
       <div className="flex-1 overflow-y-auto bg-background">
         <div className="flex h-full flex-col gap-4 p-4">
-          {pendingApproval && (
-            <div className="rounded-lg border-2 border-primary/20 bg-muted/30 p-5 space-y-4">
-              <div>
-                <p className="text-base font-semibold text-foreground">
-                  📋 Product Requirements Document
-                </p>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  Review the PRD draft below and approve to continue generation
-                </p>
-              </div>
-
-              {componentState.prd && (
-                <div className="rounded-md border border-border bg-background p-4">
-                  <h3 className="text-sm font-semibold text-foreground mb-3">PRD Draft</h3>
-                  <pre className="max-h-96 overflow-auto whitespace-pre-wrap text-sm text-foreground leading-relaxed">
-                    {componentState.prd}
-                  </pre>
-                </div>
-              )}
-
-              <div className="pt-2 border-t border-border">
-                <p className="text-xs text-muted-foreground mb-3">
-                  {pendingApproval.message}
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    onClick={() => handleApprovalDecision("approved")}
-                    disabled={isLoading}
-                    className="inline-flex items-center justify-center rounded-lg bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90 disabled:opacity-50"
-                  >
-                    ✓ Approve PRD
-                  </button>
-                  <button
-                    onClick={() => handleApprovalDecision("rejected")}
-                    disabled={isLoading}
-                    className="inline-flex items-center justify-center rounded-lg border-2 border-border px-5 py-2.5 text-sm font-semibold text-foreground transition hover:bg-muted disabled:opacity-50"
-                  >
-                    ✎ Request Changes
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-
           <div
             className={`flex flex-1 flex-col gap-4 ${
               showEmptyState ? "justify-center" : "justify-end"
@@ -567,6 +523,50 @@ export function ChatInterface() {
                 </div>
               </div>
             ))}
+
+            {pendingApproval && (
+              <div className="rounded-lg border-2 border-primary/20 bg-muted/30 p-5 space-y-4">
+                <div>
+                  <p className="text-base font-semibold text-foreground">
+                    📋 Product Requirements Document
+                  </p>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Review the PRD draft below and approve to continue generation
+                  </p>
+                </div>
+
+                {componentState.prd && (
+                  <div className="rounded-md border border-border bg-background p-4">
+                    <h3 className="text-sm font-semibold text-foreground mb-3">PRD Draft</h3>
+                    <pre className="max-h-96 overflow-auto whitespace-pre-wrap text-sm text-foreground leading-relaxed">
+                      {componentState.prd}
+                    </pre>
+                  </div>
+                )}
+
+                <div className="pt-2 border-t border-border">
+                  <p className="text-xs text-muted-foreground mb-3">
+                    {pendingApproval.message}
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      onClick={() => handleApprovalDecision("approved")}
+                      disabled={isLoading}
+                      className="inline-flex items-center justify-center rounded-lg bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90 disabled:opacity-50"
+                    >
+                      ✓ Approve PRD
+                    </button>
+                    <button
+                      onClick={() => handleApprovalDecision("rejected")}
+                      disabled={isLoading}
+                      className="inline-flex items-center justify-center rounded-lg border-2 border-border px-5 py-2.5 text-sm font-semibold text-foreground transition hover:bg-muted disabled:opacity-50"
+                    >
+                      ✎ Request Changes
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
 
             <StepsTimeline />
 
