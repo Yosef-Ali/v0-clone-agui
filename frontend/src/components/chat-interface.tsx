@@ -413,7 +413,7 @@ export function ChatInterface() {
 
     await streamRun({
       payload: {
-        assistant_id: "v0-generator",
+        assistant_id: "v0-generator-subgraphs",
         input: {
           messages: [
             {
@@ -452,7 +452,7 @@ export function ChatInterface() {
 
     await streamRun({
       payload: {
-        assistant_id: "v0-generator",
+        assistant_id: "v0-generator-subgraphs",
         input: {
           approval: {
             step: pendingApproval.stepId,
