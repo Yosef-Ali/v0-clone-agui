@@ -11,6 +11,21 @@
 - 🔗 **Subgraph Architecture**: Specialized agents working together
 - ⚡ **Streaming Updates**: Real-time code generation and preview
 
+## 🚀 Deploy to Cloudflare (FREE!)
+
+Deploy your entire full-stack app in one click to Cloudflare's global network:
+
+[![Deploy to Cloudflare Workers](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/YOUR_USERNAME/v0-clone-agui)
+
+**What you get (100% FREE tier):**
+- ⚡ Backend on Cloudflare Workers (100k requests/day)
+- 🌐 Frontend on Cloudflare Pages (unlimited bandwidth)
+- 🔐 Automatic HTTPS & DDoS protection
+- 🌍 Global CDN (50ms from 95% of users)
+- 🤖 **NEW:** Claude MCP integration for AI-powered deployment!
+
+📖 **[Full Deployment Guide →](docs/CLOUDFLARE_DEPLOY.md)**
+
 ## 🏗️ Architecture
 
 ```

@@ -23,6 +23,41 @@ export type ArtifactSummary = {
   contents: string;
 };
 
+
+export type RequirementsDraft = {
+  rawInput?: string;
+  features?: string[];
+  styling?: {
+    theme?: string;
+    colorScheme?: string;
+    layout?: string;
+  };
+  components?: string[];
+  clarificationNeeded?: boolean;
+  clarificationQuestions?: string[];
+};
+
+export type DesignSpecDraft = {
+  componentHierarchy?: string[];
+  layout?: {
+    type?: string;
+    direction?: string;
+    spacing?: string;
+    padding?: string;
+  };
+  styling?: {
+    framework?: string;
+    theme?: string;
+    colorScheme?: string;
+  };
+  interactions?: Array<{
+    trigger?: string;
+    action?: string;
+    target?: string;
+  }>;
+};
+
+
 export interface ComponentState {
   componentCode: string;
   currentStep: string;
@@ -33,8 +68,8 @@ export interface ComponentState {
   artifacts: ArtifactSummary[];
   prd?: string;
   progress: number;
-  awaitingApproval: boolean;
-  pendingApprovalStep: string | null;
+  requirements?: RequirementsDraft;
+  designSpec?: DesignSpecDraft;
 }
 
 export const INITIAL_COMPONENT_STATE: ComponentState = {
@@ -55,8 +90,8 @@ export const INITIAL_COMPONENT_STATE: ComponentState = {
   artifacts: [],
   prd: undefined,
   progress: 0,
-  awaitingApproval: false,
-  pendingApprovalStep: null,
+  requirements: undefined,
+  designSpec: undefined,
 };
 
 export function createInitialComponentState(): ComponentState {
@@ -71,8 +106,8 @@ export function createInitialComponentState(): ComponentState {
     logs: [],
     artifacts: [],
     prd: undefined,
-    awaitingApproval: false,
-    pendingApprovalStep: null,
+    requirements: undefined,
+    designSpec: undefined,
   };
 }
 

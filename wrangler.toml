@@ -1,0 +1,37 @@
+# Cloudflare Workers Configuration for V0 Clone Backend
+# Free tier compatible - runs on Cloudflare's global network
+
+name = "v0-clone-backend"
+main = "backend/dist/index.js"
+compatibility_date = "2025-01-20"
+
+# Workers configuration
+workers_dev = true
+
+# Environment variables (add your API keys in Cloudflare dashboard)
+[env.production.vars]
+NODE_ENV = "production"
+
+# Secrets (configure via: wrangler secret put DEEPSEEK_API_KEY)
+# DEEPSEEK_API_KEY - Set via Cloudflare dashboard or CLI
+# DEEPSEEK_BASE_URL - Set via Cloudflare dashboard or CLI  
+# DEEPSEEK_MODEL - Set via Cloudflare dashboard or CLI
+
+# Build configuration
+[build]
+command = "cd backend && npm run build"
+watch_dirs = ["backend/src"]
+
+# KV Namespace for storing threads/state (optional - free tier: 100k reads, 1k writes per day)
+# Uncomment to enable:
+# [[kv_namespaces]]
+# binding = "THREADS"
+# id = "your_kv_namespace_id"
+# preview_id = "your_preview_kv_namespace_id"
+
+# D1 Database for persistence (optional - free tier: 5M reads, 100k writes per day)
+# Uncomment to enable:
+# [[d1_databases]]
+# binding = "DB"
+# database_name = "v0-clone-db"
+# database_id = "your_database_id"

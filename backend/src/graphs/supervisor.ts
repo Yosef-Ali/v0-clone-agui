@@ -51,7 +51,8 @@ function routeToSubgraph(state: SupervisorState): string {
       if (state.feedback && state.feedback.trim() !== "") {
         return "requirements_parser";
       }
-      return "preview_iteration";
+      // No approval or feedback yet - stop and wait for user input
+      return "end";
 
     case "approved":
       return "end";
@@ -81,8 +82,9 @@ export function createSupervisorGraph() {
     channels: {
       messages: {
         value: (left: any[], right: any[]) => {
-          if (!right) return left || [];
-          return [...(left || []), ...right];
+          // Subgraphs return full state including all messages
+          // So we replace rather than append to avoid duplication
+          return right || left || [];
         },
         default: () => [],
       },

@@ -1,4 +1,4 @@
-import { StateGraph, END } from "@langchain/langgraph";
+import { StateGraph, END, START } from "@langchain/langgraph";
 import type { SupervisorState, Requirements } from "../../state/generator-state.js";
 import { getDeepSeekClient } from "../../utils/deepseek-client.js";
 import { logger } from "../../utils/logger.js";
@@ -100,25 +100,58 @@ Respond in JSON format:
  * Create the Requirements Parser subgraph
  */
 export function createRequirementsParserGraph() {
-  const workflow = new StateGraph<RequirementsParserState>({
+  const workflow: any = new StateGraph<RequirementsParserState>({
     channels: {
       messages: {
-        value: (left: any[], right: any[]) => {
-          // Only pass through, don't duplicate
-          return right !== undefined ? right : left;
+        value: (left?: any[], right?: any[]) => {
+          // Accumulate messages from nodes
+          if (!right) return left || [];
+          return [...(left || []), ...right];
         },
+        default: () => [],
       },
       currentStep: {
         value: (left: any, right: any) => right || left,
+        default: () => "requirements",
       },
       requirements: {
         value: (left: any, right: any) => right || left,
+      },
+      designSpec: {
+        value: (left: any, right: any) => right || left,
+      },
+      componentState: {
+        value: (left: any, right: any) => right || left,
+      },
+      userApproval: {
+        value: (left: any, right: any) => right !== undefined ? right : left,
+        default: () => false,
+      },
+      feedback: {
+        value: (left: any, right: any) => right !== undefined ? right : left,
+        default: () => null,
+      },
+      iterationCount: {
+        value: (left: any, right: any) => right !== undefined ? right : left,
+        default: () => 0,
+      },
+      sessionId: {
+        value: (left: any, right: any) => right || left,
+        default: () => "",
+      },
+      createdAt: {
+        value: (left: any, right: any) => right || left,
+        default: () => new Date().toISOString(),
+      },
+      updatedAt: {
+        value: (left: any, right: any) => right || left,
+        default: () => new Date().toISOString(),
       },
     },
   });
 
   workflow.addNode("parse", parseRequirementsNode);
-  workflow.setEntryPoint("parse");
+  workflow.addEdge(START, "parse");
   workflow.addEdge("parse", END);
 
   return workflow.compile();

@@ -1,4 +1,4 @@
-import { StateGraph, END } from "@langchain/langgraph";
+import { StateGraph, END, START } from "@langchain/langgraph";
 import type { SupervisorState } from "../../state/generator-state.js";
 import { logger } from "../../utils/logger.js";
 
@@ -112,16 +112,24 @@ function preparePreviewNode(state: PreviewIterationState): Partial<SupervisorSta
  * Create the Preview & Iteration subgraph
  */
 export function createPreviewIterationGraph() {
-  const workflow = new StateGraph<PreviewIterationState>({
+  const workflow: any = new StateGraph<PreviewIterationState>({
     channels: {
       messages: {
-        value: (left: any[], right: any[]) => {
-          // Only pass through, don't duplicate
-          return right !== undefined ? right : left;
+        value: (left?: any[], right?: any[]) => {
+          // Accumulate messages from nodes
+          if (!right) return left || [];
+          return [...(left || []), ...right];
         },
         default: () => [],
       },
       currentStep: {
+        value: (left: any, right: any) => right || left,
+        default: () => "preview",
+      },
+      requirements: {
+        value: (left: any, right: any) => right || left,
+      },
+      designSpec: {
         value: (left: any, right: any) => right || left,
       },
       componentState: {
@@ -129,13 +137,27 @@ export function createPreviewIterationGraph() {
       },
       userApproval: {
         value: (left: any, right: any) => (right !== undefined ? right : left),
+        default: () => false,
       },
       feedback: {
         value: (left: any, right: any) => (right !== undefined ? right : left),
+        default: () => null,
       },
       iterationCount: {
         value: (left: any, right: any) => (right !== undefined ? right : left),
         default: () => 0,
+      },
+      sessionId: {
+        value: (left: any, right: any) => right || left,
+        default: () => "",
+      },
+      createdAt: {
+        value: (left: any, right: any) => right || left,
+        default: () => new Date().toISOString(),
+      },
+      updatedAt: {
+        value: (left: any, right: any) => right || left,
+        default: () => new Date().toISOString(),
       },
     },
   });
@@ -146,7 +168,7 @@ export function createPreviewIterationGraph() {
   workflow.addNode("handle_feedback", handleFeedbackNode);
 
   // Set entry point
-  workflow.setEntryPoint("prepare");
+  workflow.addEdge(START, "prepare");
 
   // Add conditional routing from prepare
   workflow.addConditionalEdges(

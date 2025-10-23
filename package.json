@@ -15,7 +15,10 @@
     "build": "npm run build:frontend && npm run build:backend",
     "build:frontend": "cd frontend && npm run build",
     "build:backend": "cd backend && npm run build",
-    "install:all": "npm install && cd frontend && npm install && cd ../backend && npm install"
+    "install:all": "npm install && cd frontend && npm install && cd ../backend && npm install",
+    "deploy": "npm run deploy:backend && npm run deploy:frontend",
+    "deploy:backend": "cd backend && npm run build && wrangler deploy",
+    "deploy:frontend": "cd frontend && npm run build && wrangler pages deploy out --project-name=v0-clone-frontend"
   },
   "devDependencies": {
     "concurrently": "^8.2.2",

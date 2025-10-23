@@ -127,8 +127,9 @@ export function createCodeGeneratorGraph(): any {
     channels: {
       messages: {
         value: (left?: any[], right?: any[]) => {
-          // Only pass through, don't duplicate
-          return right !== undefined ? right : (left || []);
+          // Accumulate messages from nodes
+          if (!right) return left || [];
+          return [...(left || []), ...right];
         },
         default: () => [],
       },

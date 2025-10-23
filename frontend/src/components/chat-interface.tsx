@@ -9,29 +9,88 @@ import {
   type ComponentState,
   type StepStatus,
 } from "../app/providers";
-import { StepsTimeline } from "./steps-timeline";
-import { ProgressiveThinking } from "./progressive-thinking";
 
 const BACKEND_URL =
   process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
 
+interface MessageSection {
+  type: "text" | "status-badge";
+  content?: string;
+  icon?: string;
+  label?: string;
+}
+
 interface Message {
   id: string;
   role: "user" | "assistant";
-  content: string;
+  sections: MessageSection[];
+  thinkingTime?: number;
+  workingTime?: number;
 }
 
-interface PendingApprovalInfo {
-  stepId: string;
-  label: string;
-  message: string;
-  artifactPath?: string;
-  excerpt?: string;
-}
 
 type StreamPayload = {
   assistant_id: string;
   input: Record<string, unknown>;
+};
+
+const formatPrdFromRequirements = (requirements: any | undefined): string | undefined => {
+  if (!requirements) {
+    return undefined;
+  }
+
+  const sections: string[] = [];
+
+  // Header
+  sections.push("# Product Requirements Document\n");
+
+  // Project Summary
+  if (requirements.rawInput) {
+    sections.push("## 📋 Project Summary");
+    sections.push(requirements.rawInput.trim() + "\n");
+  }
+
+  // Key Features
+  if (Array.isArray(requirements.features) && requirements.features.length > 0) {
+    sections.push("## ✨ Key Features");
+    requirements.features.forEach((feature: string) => {
+      sections.push(`- **${feature}**`);
+    });
+    sections.push("");
+  }
+
+  // Visual Direction
+  const styling = requirements.styling ?? {};
+  const stylingDetails = [
+    styling.theme ? `**Theme:** ${styling.theme}` : null,
+    styling.colorScheme ? `**Color Scheme:** ${styling.colorScheme}` : null,
+    styling.layout ? `**Layout:** ${styling.layout}` : null,
+  ].filter(Boolean);
+  if (stylingDetails.length > 0) {
+    sections.push("## 🎨 Visual Direction");
+    stylingDetails.forEach(detail => sections.push(`- ${detail}`));
+    sections.push("");
+  }
+
+  // Component Architecture
+  if (Array.isArray(requirements.components) && requirements.components.length > 0) {
+    sections.push("## 🧩 Component Architecture");
+    requirements.components.forEach((component: string) => {
+      sections.push(`- \`${component}\``);
+    });
+    sections.push("");
+  }
+
+  // Clarifications (if any)
+  if (requirements.clarificationNeeded && Array.isArray(requirements.clarificationQuestions)) {
+    sections.push("## ❓ Clarifications Needed");
+    requirements.clarificationQuestions.forEach((question: string) => {
+      sections.push(`- ${question}`);
+    });
+    sections.push("");
+  }
+
+  return sections.length > 1 ? sections.join("\n") : undefined;
 };
 
 export function ChatInterface() {
@@ -39,47 +98,13 @@ export function ChatInterface() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  const [pendingApproval, setPendingApproval] =
-    useState<PendingApprovalInfo | null>(null);
   
-  // Progressive thinking states
-  const [currentThinkingStep, setCurrentThinkingStep] = useState<string | undefined>(undefined);
-  const [thinkingStartTime, setThinkingStartTime] = useState<number | null>(null);
-  const [elapsedSeconds, setElapsedSeconds] = useState(0);
-
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const threadIdRef = useRef<string | null>(null);
 
-  // Timer for elapsed seconds
-  useEffect(() => {
-    if (!isLoading || !thinkingStartTime) {
-      return;
-    }
-
-    const interval = setInterval(() => {
-      const elapsed = Math.floor((Date.now() - thinkingStartTime) / 1000);
-      setElapsedSeconds(elapsed);
-    }, 1000);
-
-    return () => clearInterval(interval);
-  }, [isLoading, thinkingStartTime]);
-
-  // Update thinking step based on current step
-  useEffect(() => {
-    if (isLoading && componentState.currentStep) {
-      setCurrentThinkingStep(componentState.currentStep);
-    }
-  }, [isLoading, componentState.currentStep]);
-
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, pendingApproval]);
-
-  useEffect(() => {
-    if (!componentState.awaitingApproval) {
-      setPendingApproval(null);
-    }
-  }, [componentState.awaitingApproval]);
+  }, [messages]);
 
   const ensureThreadId = () => {
     if (!threadIdRef.current) {
@@ -119,30 +144,39 @@ export function ChatInterface() {
   );
 
   const applyIncomingState = useCallback(
-    (incoming: Partial<ComponentState>) => {
-      setComponentState((prev) => ({
-        componentCode: incoming.componentCode ?? prev.componentCode,
-        currentStep: incoming.currentStep ?? prev.currentStep,
-        approved: incoming.approved ?? prev.approved,
-        feedback:
-          incoming.feedback !== undefined ? incoming.feedback : prev.feedback,
-        steps: mergeSteps(prev.steps, incoming.steps),
-        logs: incoming.logs ?? prev.logs,
-        artifacts: incoming.artifacts ?? prev.artifacts,
-        prd: incoming.prd ?? prev.prd,
-        progress:
-          typeof incoming.progress === "number"
-            ? incoming.progress
-            : prev.progress,
-        awaitingApproval:
-          typeof incoming.awaitingApproval === "boolean"
-            ? incoming.awaitingApproval
-            : prev.awaitingApproval,
-        pendingApprovalStep:
-          incoming.pendingApprovalStep !== undefined
-            ? (incoming.pendingApprovalStep as string | null)
-            : prev.pendingApprovalStep,
-      }));
+    (incoming: Partial<ComponentState> & Record<string, unknown>) => {
+      setComponentState((prev) => {
+        const nextRequirements =
+          (incoming as { requirements?: ComponentState["requirements"] })
+            .requirements ?? prev.requirements;
+
+        const nextDesignSpec =
+          (incoming as { designSpec?: ComponentState["designSpec"] })
+            .designSpec ?? prev.designSpec;
+
+        const nextPrd =
+          typeof incoming.prd === "string"
+            ? incoming.prd
+            : formatPrdFromRequirements(nextRequirements) ?? prev.prd;
+
+        return {
+          componentCode: incoming.componentCode ?? prev.componentCode,
+          currentStep: incoming.currentStep ?? prev.currentStep,
+          approved: incoming.approved ?? prev.approved,
+          feedback:
+            incoming.feedback !== undefined ? incoming.feedback : prev.feedback,
+          steps: mergeSteps(prev.steps, incoming.steps),
+          logs: incoming.logs ?? prev.logs,
+          artifacts: incoming.artifacts ?? prev.artifacts,
+          prd: nextPrd,
+          progress:
+            typeof incoming.progress === "number"
+              ? incoming.progress
+              : prev.progress,
+          requirements: nextRequirements,
+          designSpec: nextDesignSpec,
+        };
+      });
     },
     [mergeSteps, setComponentState]
   );
@@ -173,14 +207,11 @@ export function ChatInterface() {
       }
 
       if (resetState) {
-        setPendingApproval(null);
         setComponentState(createInitialComponentState());
-        setCurrentThinkingStep(undefined);
       }
 
       setIsLoading(true);
-      setThinkingStartTime(Date.now());
-      setElapsedSeconds(0);
+      const startTime = Date.now();
 
       try {
         const response = await fetch(
@@ -207,8 +238,8 @@ export function ChatInterface() {
         let buffer = "";
         let currentEvent = "";
         let dataBuffer = "";
-        let assistantSummary = "";
-        let summaryPushed = false;
+        let assistantMessage = "";
+        let statusBadges: Array<{ icon: string; text: string }> = [];
 
         const flushEvent = () => {
           if (!currentEvent || !dataBuffer) {
@@ -254,6 +285,8 @@ export function ChatInterface() {
             case "prd":
               if (typeof payload?.prd === "string") {
                 setComponentState((prev) => ({ ...prev, prd: payload.prd }));
+                assistantMessage = `I've analyzed your requirements. Here's what I understood:\n\n${payload.prd}`;
+                statusBadges.push({ icon: "📋", text: "Requirements analyzed" });
               }
               break;
             case "artifact":
@@ -277,60 +310,49 @@ export function ChatInterface() {
                 applyIncomingState(payload as Partial<ComponentState>);
               }
               break;
-            case "approval-required": {
-              const info: PendingApprovalInfo = {
-                stepId:
-                  typeof payload?.stepId === "string" ? payload.stepId : "spec",
-                label:
-                  typeof payload?.label === "string"
-                    ? payload.label
-                    : "Approval Required",
-                message:
-                  typeof payload?.message === "string"
-                    ? payload.message
-                    : "Please review and approve the latest output to continue.",
-                artifactPath:
-                  typeof payload?.artifactPath === "string"
-                    ? payload.artifactPath
-                    : undefined,
-                excerpt:
-                  typeof payload?.excerpt === "string"
-                    ? payload.excerpt
-                    : undefined,
-              };
-
-              setPendingApproval(info);
-              setMessages((prev) => [
-                ...prev,
-                {
-                  id: `${Date.now()}-approval`,
-                  role: "assistant",
-                  content: info.message,
-                },
-              ]);
-              assistantSummary = info.message;
-              summaryPushed = true;
-              break;
-            }
-            case "approval-rejected":
-              if (typeof payload?.feedback === "string") {
-                appendLog(`Changes requested: ${payload.feedback}`);
-                setMessages((prev) => [
-                  ...prev,
-                  {
-                    id: `${Date.now()}-approval-rejected`,
-                    role: "assistant",
-                    content: `Changes requested: ${payload.feedback}`,
-                  },
-                ]);
-                summaryPushed = true;
-                assistantSummary = `Changes requested: ${payload.feedback}`;
+            case "step-status":
+              if (payload?.status === "success") {
+                if (payload.id === "spec") {
+                  statusBadges.push({ icon: "✓", text: "Requirements analyzed" });
+                } else if (payload.id === "design") {
+                  statusBadges.push({ icon: "✓", text: "Design created" });
+                } else if (payload.id === "code") {
+                  statusBadges.push({ icon: "✓", text: "Code generated" });
+                } else if (payload.id === "build") {
+                  statusBadges.push({ icon: "✓", text: "Preview ready" });
+                }
               }
               break;
             case "run-finished":
-              if (typeof payload?.summary === "string") {
-                assistantSummary = payload.summary;
+              const elapsedTime = Math.floor((Date.now() - startTime) / 1000);
+              if (!assistantMessage) {
+                assistantMessage = payload?.summary || "Component ready!";
               }
+
+              // Build sections from message and status badges
+              const sections: MessageSection[] = [
+                { type: "text", content: assistantMessage }
+              ];
+
+              // Add status badges as inline sections
+              statusBadges.forEach(badge => {
+                sections.push({
+                  type: "status-badge",
+                  icon: badge.icon,
+                  label: badge.text
+                });
+              });
+
+              setMessages((prev) => [
+                ...prev,
+                {
+                  id: `${Date.now()}-assistant`,
+                  role: "assistant",
+                  sections,
+                  thinkingTime: Math.floor(elapsedTime / 3), // Simulated thinking time
+                  workingTime: elapsedTime,
+                },
+              ]);
               appendLog("Pipeline completed");
               break;
             case "error":
@@ -379,22 +401,14 @@ export function ChatInterface() {
             }
           }
         }
-
-        if (assistantSummary && !summaryPushed) {
-          setMessages((prev) => [
-            ...prev,
-            {
-              id: `${Date.now()}-assistant`,
-              role: "assistant",
-              content: assistantSummary,
-            },
-          ]);
-        }
       } catch (error: any) {
         const errorMessage: Message = {
           id: (Date.now() + 1).toString(),
           role: "assistant",
-          content: `Error: ${error.message}. Make sure the backend is running on ${BACKEND_URL}`,
+          sections: [{
+            type: "text",
+            content: `Error: ${error.message}. Make sure the backend is running on ${BACKEND_URL}`
+          }],
         };
         setMessages((prev) => [...prev, errorMessage]);
       } finally {
@@ -426,56 +440,31 @@ export function ChatInterface() {
       userMessage: {
         id: Date.now().toString(),
         role: "user",
-        content,
+        sections: [{ type: "text", content }],
       },
       resetState: true,
     });
   };
 
-  const handleApprovalDecision = async (
-    status: "approved" | "rejected"
-  ) => {
-    if (!pendingApproval) return;
-
-    let feedback: string | undefined;
-    if (status === "rejected") {
-      feedback = window.prompt("What changes would you like?") ?? undefined;
-      if (!feedback) {
-        return;
-      }
-    }
-
-    const content =
-      status === "approved"
-        ? `Approved ${pendingApproval.label}.`
-        : `Requested changes for ${pendingApproval.label}: ${feedback}`;
-
-    await streamRun({
-      payload: {
-        assistant_id: "v0-generator-subgraphs",
-        input: {
-          approval: {
-            step: pendingApproval.stepId,
-            status,
-            ...(feedback ? { feedback } : {}),
-          },
-        },
-      },
-      userMessage: {
-        id: `${Date.now()}-decision`,
-        role: "user",
-        content,
-      },
-      resetState: false,
-    });
-  };
-
   const isInputDisabled = useMemo(
-    () => isLoading || pendingApproval !== null,
-    [isLoading, pendingApproval]
+    () => isLoading,
+    [isLoading]
   );
 
-  const showEmptyState = messages.length === 0 && !pendingApproval;
+  const showEmptyState = messages.length === 0;
+
+  // AG-UI Process Stage Indicator
+  const getProcessStage = () => {
+    if (showEmptyState) return null;
+    if (componentState.currentStep === "spec") return { step: 1, label: "Requirements", icon: "📋" };
+    if (componentState.currentStep === "design") return { step: 2, label: "Design", icon: "🎨" };
+    if (componentState.currentStep === "code") return { step: 3, label: "Code Generation", icon: "⚡" };
+    if (componentState.currentStep === "build") return { step: 4, label: "Build & Preview", icon: "🚀" };
+    if (componentState.componentCode) return { step: 4, label: "Complete", icon: "✅" };
+    return null;
+  };
+
+  const processStage = getProcessStage();
 
   return (
     <div className="h-full flex flex-col">
@@ -484,111 +473,160 @@ export function ChatInterface() {
         <p className="text-sm text-muted-foreground">
           Describe your app in natural language
         </p>
-      </div>
-
-      <div className="flex-1 overflow-y-auto bg-background">
-        <div className="flex h-full flex-col gap-4 p-4">
-          <div
-            className={`flex flex-1 flex-col gap-4 ${
-              showEmptyState ? "justify-center" : "justify-end"
-            }`}
-          >
-            {showEmptyState && (
-              <div className="text-center text-muted-foreground py-12">
-                <p className="text-lg">Hi! 👋</p>
-                <p className="mt-2">Describe the app you want to build...</p>
-                <p className="text-sm mt-4 text-muted-foreground/60">
-                  e.g., Build a todo app with dark mode
-                </p>
-              </div>
-            )}
-
-            {messages.map((message) => (
-              <div
-                key={message.id}
-                className={`flex ${
-                  message.role === "user" ? "justify-end" : "justify-start"
-                }`}
-              >
+        {processStage && (
+          <div className="mt-3 flex items-center gap-2 text-xs">
+            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-primary/10 border border-primary/20">
+              <span>{processStage.icon}</span>
+              <span className="font-semibold text-foreground">Stage {processStage.step}:</span>
+              <span className="text-muted-foreground">{processStage.label}</span>
+            </div>
+            <div className="flex gap-1">
+              {[1, 2, 3, 4].map((step) => (
                 <div
-                  className={`max-w-[80%] rounded-lg px-4 py-2 ${
-                    message.role === "user"
-                      ? "bg-primary text-primary-foreground"
+                  key={step}
+                  className={`h-1.5 w-8 rounded-full transition-colors ${
+                    step <= (processStage.step || 0)
+                      ? "bg-primary"
                       : "bg-muted"
                   }`}
-                >
-                  <p className="text-sm whitespace-pre-wrap">
-                    {message.content}
-                  </p>
-                </div>
-              </div>
-            ))}
+                />
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
 
-            {pendingApproval && (
-              <div className="rounded-lg border-2 border-primary/20 bg-muted/30 p-5 space-y-4">
-                <div>
-                  <p className="text-base font-semibold text-foreground">
-                    📋 Product Requirements Document
-                  </p>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    Review the PRD draft below and approve to continue generation
-                  </p>
-                </div>
+      <div className="flex-1 overflow-y-auto space-y-4 p-4">
+        {showEmptyState && (
+          <div className="flex h-full flex-col items-center justify-center gap-2 text-muted-foreground">
+            <p className="text-lg font-semibold text-foreground">Hi! 👋</p>
+            <p className="text-sm">Tell me what you'd like to build and I'll produce the UI.</p>
+            <p className="text-xs text-muted-foreground/70">
+              Try "Build a todo app with dark mode and reminders"
+            </p>
+          </div>
+        )}
 
-                {componentState.prd && (
-                  <div className="rounded-md border border-border bg-background p-4">
-                    <h3 className="text-sm font-semibold text-foreground mb-3">PRD Draft</h3>
-                    <pre className="max-h-96 overflow-auto whitespace-pre-wrap text-sm text-foreground leading-relaxed">
-                      {componentState.prd}
-                    </pre>
+        {messages.map((message) => (
+          <div key={message.id}>
+            <div
+              className={`flex ${
+                message.role === "user" ? "justify-end" : "justify-start"
+              }`}
+            >
+              <div
+                className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm shadow-sm ${
+                  message.role === "user"
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-muted text-foreground"
+                }`}
+              >
+                {/* Thinking time BEFORE content */}
+                {message.role === "assistant" && message.thinkingTime && (
+                  <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-3 opacity-70">
+                    <span>🤔</span>
+                    <span>Thought for {message.thinkingTime}s</span>
                   </div>
                 )}
 
-                <div className="pt-2 border-t border-border">
-                  <p className="text-xs text-muted-foreground mb-3">
-                    {pendingApproval.message}
-                  </p>
-                  <div className="flex flex-wrap gap-2">
+                {/* Content sections with inline status badges */}
+                <div className="space-y-3">
+                  {message.sections.map((section, idx) => (
+                    <div key={idx}>
+                      {section.type === "text" && (
+                        <div className="whitespace-pre-wrap leading-relaxed">
+                          {section.content}
+                        </div>
+                      )}
+                      {section.type === "status-badge" && (
+                        <div className="flex items-center gap-1.5 text-xs text-muted-foreground py-1">
+                          <span>{section.icon}</span>
+                          <span>{section.label}</span>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+
+                {/* Working time AFTER content */}
+                {message.role === "assistant" && message.workingTime && (
+                  <div className="flex items-center gap-1.5 text-xs text-muted-foreground mt-3 opacity-70 border-t border-border/30 pt-2">
+                    <span>⚡</span>
+                    <span>Worked for {message.workingTime}s</span>
+                  </div>
+                )}
+
+                {/* Action buttons for assistant messages */}
+                {message.role === "assistant" && (
+                  <div className="flex items-center gap-2 mt-3 pt-2 border-t border-border/30">
                     <button
-                      onClick={() => handleApprovalDecision("approved")}
-                      disabled={isLoading}
-                      className="inline-flex items-center justify-center rounded-lg bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90 disabled:opacity-50"
+                      className="p-1.5 rounded hover:bg-background/60 transition-colors"
+                      title="Like"
                     >
-                      ✓ Approve PRD
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 10h4.764a2 2 0 011.789 2.894l-3.5 7A2 2 0 0115.263 21h-4.017c-.163 0-.326-.02-.485-.06L7 20m7-10V5a2 2 0 00-2-2h-.095c-.5 0-.905.405-.905.905 0 .714-.211 1.412-.608 2.006L7 11v9m7-10h-2M7 20H5a2 2 0 01-2-2v-6a2 2 0 012-2h2.5" />
+                      </svg>
                     </button>
                     <button
-                      onClick={() => handleApprovalDecision("rejected")}
-                      disabled={isLoading}
-                      className="inline-flex items-center justify-center rounded-lg border-2 border-border px-5 py-2.5 text-sm font-semibold text-foreground transition hover:bg-muted disabled:opacity-50"
+                      className="p-1.5 rounded hover:bg-background/60 transition-colors"
+                      title="Dislike"
                     >
-                      ✎ Request Changes
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 14H5.236a2 2 0 01-1.789-2.894l3.5-7A2 2 0 018.736 3h4.018a2 2 0 01.485.06l3.76.94m-7 10v5a2 2 0 002 2h.096c.5 0 .905-.405.905-.904 0-.715.211-1.413.608-2.008L17 13V4m-7 10h2m5-10h2a2 2 0 012 2v6a2 2 0 01-2 2h-2.5" />
+                      </svg>
+                    </button>
+                    <button
+                      className="p-1.5 rounded hover:bg-background/60 transition-colors"
+                      title="Copy"
+                      onClick={() => {
+                        const text = message.sections
+                          .filter(s => s.type === "text")
+                          .map(s => s.content)
+                          .join("\n\n");
+                        navigator.clipboard.writeText(text);
+                      }}
+                    >
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                      </svg>
+                    </button>
+                    <button
+                      className="p-1.5 rounded hover:bg-background/60 transition-colors"
+                      title="More"
+                    >
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" />
+                      </svg>
                     </button>
                   </div>
-                </div>
+                )}
               </div>
-            )}
-
-            <StepsTimeline />
-
-            {/* Progressive thinking indicator */}
-            {isLoading && (
-              <ProgressiveThinking
-                currentStep={currentThinkingStep}
-                elapsedTime={elapsedSeconds}
-                steps={[
-                  { id: "spec", label: "Analyzing requirements", status: "pending" },
-                  { id: "schema", label: "Designing data schema", status: "pending" },
-                  { id: "ui", label: "Scaffolding components", status: "pending" },
-                  { id: "apis", label: "Building APIs", status: "pending" },
-                  { id: "build", label: "Compiling app", status: "pending" },
-                  { id: "fix", label: "Running auto-fix", status: "pending" },
-                ]}
-              />
-            )}
-
-            <div ref={messagesEndRef} />
+            </div>
           </div>
-        </div>
+        ))}
+
+
+        {isLoading && (
+          <div className="flex justify-start">
+            <div className="max-w-[85%] rounded-2xl bg-muted px-4 py-3 text-sm shadow-sm">
+              <div className="flex items-center gap-1.5 text-xs text-muted-foreground opacity-70">
+                <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                <span>
+                  {componentState.currentStep === "spec" && "Analyzing requirements..."}
+                  {componentState.currentStep === "design" && "Designing component..."}
+                  {componentState.currentStep === "code" && "Generating code..."}
+                  {componentState.currentStep === "build" && "Building preview..."}
+                  {!componentState.currentStep && "Thinking..."}
+                </span>
+              </div>
+            </div>
+          </div>
+        )}
+
+        <div ref={messagesEndRef} />
       </div>
 
       <form
@@ -612,11 +650,6 @@ export function ChatInterface() {
             Send
           </button>
         </div>
-        {pendingApproval && (
-          <p className="mt-2 text-xs text-muted-foreground">
-            Complete the approval above to continue generation.
-          </p>
-        )}
       </form>
     </div>
   );

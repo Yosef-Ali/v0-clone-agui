@@ -2,7 +2,6 @@
 
 import { ChatInterface } from "@/components/chat-interface";
 import { LivePreview } from "@/components/live-preview";
-import { ApprovalPanel } from "@/components/approval-panel";
 
 export default function Home() {
   return (
@@ -14,10 +13,9 @@ export default function Home() {
         </div>
       </div>
 
-      {/* Right Side: Live Preview & Approval */}
+      {/* Right Side: Live Preview */}
       <div className="w-1/2 flex flex-col">
         <LivePreview />
-        <ApprovalPanel />
       </div>
     </main>
   );
