@@ -6,13 +6,10 @@ import { useComponentState } from "@/app/providers";
 import { Shimmer } from "./shimmer";
 
 const STEPS: Array<{ id: string; label: string }> = [
-  { id: "spec", label: "PRD & Decisions" },
-  { id: "schema", label: "Data Schema" },
-  { id: "ui", label: "UI Scaffolding" },
-  { id: "apis", label: "APIs" },
-  { id: "build", label: "Build" },
-  { id: "fix", label: "Auto-Fix" },
-  { id: "done", label: "Done" },
+  { id: "spec", label: "Requirements Analysis" },
+  { id: "design", label: "Component Design" },
+  { id: "code", label: "Code Generation" },
+  { id: "build", label: "Build & Preview" },
 ];
 
 export function StepsTimeline({ className = "" }: { className?: string }) {

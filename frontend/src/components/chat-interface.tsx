@@ -1,6 +1,17 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import {
+  Sparkles,
+  ClipboardCopy,
+  ThumbsUp,
+  ThumbsDown,
+  MoreHorizontal,
+  Send,
+  CheckCircle2,
+  Loader2,
+  Circle,
+} from "lucide-react";
 
 import {
   createInitialComponentState,
@@ -9,23 +20,26 @@ import {
   type ComponentState,
   type StepStatus,
 } from "../app/providers";
+import { ApprovalMessage } from "./approval-message";
+import { Avatar } from "./ui/avatar";
+import { Button } from "./ui/button";
 
 const BACKEND_URL =
   process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
 
 interface MessageSection {
-  type: "text" | "status-badge";
-  content?: string;
-  icon?: string;
-  label?: string;
+  type: "text";
+  content: string;
 }
 
 interface Message {
   id: string;
   role: "user" | "assistant";
+  type?: "normal" | "approval";
   sections: MessageSection[];
-  thinkingTime?: number;
-  workingTime?: number;
+  // For approval messages
+  prdText?: string;
+  requirements?: any;
 }
 
 
@@ -34,73 +48,71 @@ type StreamPayload = {
   input: Record<string, unknown>;
 };
 
-const formatPrdFromRequirements = (requirements: any | undefined): string | undefined => {
-  if (!requirements) {
-    return undefined;
-  }
+// Removed formatPrdFromRequirements - no longer used
 
-  const sections: string[] = [];
+type StepThreadMessage =
+  | {
+      id: string;
+      variant: "text" | "log" | "thought";
+      content: string;
+    }
+  | {
+      id: string;
+      variant: "approval";
+      prdText: string;
+      requirements?: any;
+    };
 
-  // Header
-  sections.push("# Product Requirements Document\n");
-
-  // Project Summary
-  if (requirements.rawInput) {
-    sections.push("## 📋 Project Summary");
-    sections.push(requirements.rawInput.trim() + "\n");
-  }
-
-  // Key Features
-  if (Array.isArray(requirements.features) && requirements.features.length > 0) {
-    sections.push("## ✨ Key Features");
-    requirements.features.forEach((feature: string) => {
-      sections.push(`- **${feature}**`);
-    });
-    sections.push("");
-  }
-
-  // Visual Direction
-  const styling = requirements.styling ?? {};
-  const stylingDetails = [
-    styling.theme ? `**Theme:** ${styling.theme}` : null,
-    styling.colorScheme ? `**Color Scheme:** ${styling.colorScheme}` : null,
-    styling.layout ? `**Layout:** ${styling.layout}` : null,
-  ].filter(Boolean);
-  if (stylingDetails.length > 0) {
-    sections.push("## 🎨 Visual Direction");
-    stylingDetails.forEach(detail => sections.push(`- ${detail}`));
-    sections.push("");
-  }
-
-  // Component Architecture
-  if (Array.isArray(requirements.components) && requirements.components.length > 0) {
-    sections.push("## 🧩 Component Architecture");
-    requirements.components.forEach((component: string) => {
-      sections.push(`- \`${component}\``);
-    });
-    sections.push("");
-  }
-
-  // Clarifications (if any)
-  if (requirements.clarificationNeeded && Array.isArray(requirements.clarificationQuestions)) {
-    sections.push("## ❓ Clarifications Needed");
-    requirements.clarificationQuestions.forEach((question: string) => {
-      sections.push(`- ${question}`);
-    });
-    sections.push("");
-  }
-
-  return sections.length > 1 ? sections.join("\n") : undefined;
+type StepThreadState = {
+  id: string;
+  label: string;
+  status: StepStatus["status"];
+  messages: StepThreadMessage[];
 };
+
+const STEP_DEFINITIONS: Array<{ id: string; label: string }> = [
+  { id: "spec", label: "Analyzing requirements" },
+  { id: "design", label: "Designing component" },
+  { id: "code", label: "Generating code" },
+  { id: "build", label: "Building preview" },
+];
 
 export function ChatInterface() {
   const { componentState, setComponentState } = useComponentState();
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const threadIdRef = useRef<string | null>(null);
+  const currentStepRef = useRef<string | null>(null);
+
+  const createInitialStepThreads = useCallback(() => {
+    const entries = STEP_DEFINITIONS.map(
+      ({ id, label }): [string, StepThreadState] => [
+        id,
+        {
+          id,
+          label,
+          status: "queued",
+          messages: [],
+        },
+      ]
+    );
+    return Object.fromEntries(entries) as Record<string, StepThreadState>;
+  }, []);
+
+  const [stepThreads, setStepThreads] = useState<Record<string, StepThreadState>>(() =>
+    createInitialStepThreads()
+  );
+
+  // Helper function to copy text to clipboard
+  const copyToClipboard = useCallback((text: string) => {
+    navigator.clipboard.writeText(text).then(
+      () => console.log("Copied to clipboard"),
+      (err) => console.error("Failed to copy:", err)
+    );
+  }, []);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -157,7 +169,7 @@ export function ChatInterface() {
         const nextPrd =
           typeof incoming.prd === "string"
             ? incoming.prd
-            : formatPrdFromRequirements(nextRequirements) ?? prev.prd;
+            : prev.prd;
 
         return {
           componentCode: incoming.componentCode ?? prev.componentCode,
@@ -201,14 +213,17 @@ export function ChatInterface() {
       userMessage?: Message;
       resetState?: boolean;
     }) => {
-      const threadId = ensureThreadId();
-      if (userMessage) {
+      if (resetState) {
+        threadIdRef.current = null;
+        setComponentState(createInitialComponentState());
+        setMessages(userMessage ? [userMessage] : []);
+        currentStepRef.current = null;
+        setStepThreads(createInitialStepThreads());
+      } else if (userMessage) {
         setMessages((prev) => [...prev, userMessage]);
       }
 
-      if (resetState) {
-        setComponentState(createInitialComponentState());
-      }
+      const threadId = ensureThreadId();
 
       setIsLoading(true);
       const startTime = Date.now();
@@ -238,8 +253,6 @@ export function ChatInterface() {
         let buffer = "";
         let currentEvent = "";
         let dataBuffer = "";
-        let assistantMessage = "";
-        let statusBadges: Array<{ icon: string; text: string }> = [];
 
         const flushEvent = () => {
           if (!currentEvent || !dataBuffer) {
@@ -265,17 +278,109 @@ export function ChatInterface() {
         };
 
         const handleSseEvent = (eventName: string, payload: any) => {
+          console.log(`[SSE Event] ${eventName}:`, payload);
+
+          const ensureStepThread = (stepId: string) => {
+            if (!STEP_DEFINITIONS.some((def) => def.id === stepId)) {
+              return;
+            }
+            setStepThreads((prev) => {
+              if (prev[stepId]) {
+                return prev;
+              }
+              const next = { ...prev };
+              next[stepId] = {
+                id: stepId,
+                label:
+                  STEP_DEFINITIONS.find((def) => def.id === stepId)?.label ?? stepId,
+                status: "queued",
+                messages: [],
+              };
+              return next;
+            });
+          };
+
+          const updateStepTrackers = (status: StepStatus) => {
+            ensureStepThread(status.id);
+            setStepThreads((prev) => {
+              const next = { ...prev };
+              const thread = next[status.id];
+              if (!thread) {
+                return prev;
+              }
+              next[status.id] = {
+                ...thread,
+                status: status.status,
+              };
+              return next;
+            });
+
+            setComponentState((prev) => ({
+              ...prev,
+              currentStep:
+                status.status === "running" ? status.id : prev.currentStep,
+              steps: {
+                ...prev.steps,
+                [status.id]: {
+                  ...prev.steps[status.id],
+                  ...status,
+                },
+              },
+            }));
+          };
+
+          const appendToStep = (
+            stepId: string,
+            message: StepThreadMessage,
+            overrideStatus?: StepStatus["status"]
+          ) => {
+            if (!STEP_DEFINITIONS.some((def) => def.id === stepId)) {
+              return;
+            }
+            ensureStepThread(stepId);
+            setStepThreads((prev) => {
+              const next = { ...prev };
+              const thread = next[stepId];
+              if (!thread) {
+                return prev;
+              }
+              next[stepId] = {
+                ...thread,
+                status: overrideStatus ?? thread.status,
+                messages: [...thread.messages, message],
+              };
+              return next;
+            });
+          };
+
           switch (eventName) {
             case "run-started":
+              console.log("🚀 Pipeline started");
               appendLog("Pipeline started");
               break;
             case "step-status":
               if (payload) {
-                updateStepStatus(payload as StepStatus);
+                console.log(`📊 Step status: ${payload.id} → ${payload.status}`);
+                updateStepTrackers(payload as StepStatus);
+                if (payload.status === "running") {
+                  currentStepRef.current = payload.id;
+                  appendToStep(payload.id, {
+                    id: `${payload.id}-start-${Date.now()}`,
+                    variant: "thought",
+                    content: "Starting execution.",
+                  }, "running");
+                } else if (payload.status === "success") {
+                  appendToStep(payload.id, {
+                    id: `${payload.id}-success-${Date.now()}`,
+                    variant: "log",
+                    content: "Completed successfully.",
+                  }, "success");
+                }
               }
               break;
             case "progress":
               if (typeof payload?.pct === "number") {
+                console.log(`📈 Progress: ${payload.pct}%`);
                 setComponentState((prev) => ({
                   ...prev,
                   progress: payload.pct,
@@ -284,13 +389,18 @@ export function ChatInterface() {
               break;
             case "prd":
               if (typeof payload?.prd === "string") {
+                console.log("📋 PRD received:", payload.prd.substring(0, 100) + "...");
                 setComponentState((prev) => ({ ...prev, prd: payload.prd }));
-                assistantMessage = `I've analyzed your requirements. Here's what I understood:\n\n${payload.prd}`;
-                statusBadges.push({ icon: "📋", text: "Requirements analyzed" });
+                appendToStep("spec", {
+                  id: `spec-prd-${Date.now()}`,
+                  variant: "text",
+                  content: payload.prd,
+                });
               }
               break;
             case "artifact":
               if (payload?.file) {
+                console.log("📄 Artifact received:", payload.file.path);
                 const artifact = payload.file as ArtifactSummary;
                 setComponentState((prev) => ({
                   ...prev,
@@ -298,84 +408,72 @@ export function ChatInterface() {
                     .filter((item) => item.path !== artifact.path)
                     .concat(artifact),
                 }));
+                const stepId = currentStepRef.current ?? "code";
+                appendToStep(stepId, {
+                  id: `${stepId}-artifact-${Date.now()}`,
+                  variant: "log",
+                  content: `Artifact generated: ${artifact.path}`,
+                });
               }
               break;
             case "log":
               if (typeof payload?.text === "string") {
                 appendLog(payload.text);
+                const stepId = currentStepRef.current;
+                if (stepId) {
+                  appendToStep(stepId, {
+                    id: `${stepId}-log-${Date.now()}`,
+                    variant: "log",
+                    content: payload.text,
+                  });
+                }
               }
               break;
             case "values":
               if (payload) {
+                console.log("🔄 State update (values):", Object.keys(payload));
                 applyIncomingState(payload as Partial<ComponentState>);
               }
               break;
-            case "step-status":
-              if (payload?.status === "success") {
-                if (payload.id === "spec") {
-                  statusBadges.push({ icon: "✓", text: "Requirements analyzed" });
-                } else if (payload.id === "design") {
-                  statusBadges.push({ icon: "✓", text: "Design created" });
-                } else if (payload.id === "code") {
-                  statusBadges.push({ icon: "✓", text: "Code generated" });
-                } else if (payload.id === "build") {
-                  statusBadges.push({ icon: "✓", text: "Preview ready" });
-                }
-              }
+            case "approval-required":
+              console.log("👍 PRD approval required");
+              appendLog("PRD approval required – waiting on user decision");
+              appendToStep("spec", {
+                id: `spec-approval-${Date.now()}`,
+                variant: "approval",
+                prdText: payload?.prd || payload?.requirements?.rawInput || "",
+                requirements: payload?.requirements,
+              }, "waiting");
               break;
-            case "run-finished":
+            case "run-finished": {
               const elapsedTime = Math.floor((Date.now() - startTime) / 1000);
-              if (!assistantMessage) {
-                assistantMessage = payload?.summary || "Component ready!";
-              }
+              console.log(`🏁 Run finished. Elapsed: ${elapsedTime}s`);
 
-              // Build sections from message and status badges
-              const sections: MessageSection[] = [
-                { type: "text", content: assistantMessage }
-              ];
-
-              // Add status badges as inline sections
-              statusBadges.forEach(badge => {
-                sections.push({
-                  type: "status-badge",
-                  icon: badge.icon,
-                  label: badge.text
-                });
+              // Only add completion message to build step if it actually ran
+              setStepThreads((prev) => {
+                const buildThread = prev.build;
+                if (buildThread && buildThread.status !== "queued") {
+                  const finalMessage =
+                    payload?.summary ||
+                    "Your component is ready! Check the preview on the right →";
+                  appendToStep("build", {
+                    id: `build-summary-${Date.now()}`,
+                    variant: "text",
+                    content: `${finalMessage}\n\nCompleted in ${elapsedTime}s.`,
+                  }, "success");
+                }
+                return prev;
               });
 
-              setMessages((prev) => [
-                ...prev,
-                {
-                  id: `${Date.now()}-assistant`,
-                  role: "assistant",
-                  sections,
-                  thinkingTime: Math.floor(elapsedTime / 3), // Simulated thinking time
-                  workingTime: elapsedTime,
-                },
-              ]);
               appendLog("Pipeline completed");
               break;
+            }
             case "error":
               appendLog(`Error: ${payload?.message ?? "unknown"}`);
               break;
             default:
               break;
           }
-        };
-
-        const updateStepStatus = (status: StepStatus) => {
-          setComponentState((prev) => ({
-            ...prev,
-            currentStep:
-              status.status === "running" ? status.id : prev.currentStep,
-            steps: {
-              ...prev.steps,
-              [status.id]: {
-                ...prev.steps[status.id],
-                ...status,
-              },
-            },
-          }));
         };
 
         while (true) {
@@ -415,10 +513,71 @@ export function ChatInterface() {
         setIsLoading(false);
       }
     },
-    [appendLog, applyIncomingState, setComponentState]
+    [appendLog, applyIncomingState, setComponentState, createInitialStepThreads]
   );
 
-  const handleSubmit = async (event: React.FormEvent) => {
+  const handleApprove = async () => {
+    console.log("✅ User approved PRD");
+    setStepThreads((prev) => {
+      const next = { ...prev };
+      const spec = next.spec;
+      if (spec) {
+        next.spec = {
+          ...spec,
+          status: "running",
+          messages: spec.messages.filter((msg) => msg.variant !== "approval"),
+        };
+      }
+      return next;
+    });
+    setIsLoading(true);
+
+    await streamRun({
+      payload: {
+        assistant_id: "v0-generator-subgraphs",
+        input: {
+          messages: [],
+          userApproval: true,
+        },
+      },
+      resetState: false,
+    });
+  };
+
+  const handleReject = async () => {
+    console.log("❌ User rejected PRD");
+    const feedback = prompt("What changes would you like to make to the requirements?");
+
+    if (feedback) {
+      setStepThreads((prev) => {
+        const next = { ...prev };
+        const spec = next.spec;
+        if (spec) {
+          next.spec = {
+            ...spec,
+            status: "running",
+            messages: spec.messages.filter((msg) => msg.variant !== "approval"),
+          };
+        }
+        return next;
+      });
+      setIsLoading(true);
+
+      await streamRun({
+        payload: {
+          assistant_id: "v0-generator-subgraphs",
+          input: {
+            messages: [],
+            userApproval: false,
+            feedback,
+          },
+        },
+        resetState: false,
+      });
+    }
+  };
+
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!input.trim() || isLoading) return;
 
@@ -453,204 +612,247 @@ export function ChatInterface() {
 
   const showEmptyState = messages.length === 0;
 
-  // AG-UI Process Stage Indicator
-  const getProcessStage = () => {
-    if (showEmptyState) return null;
-    if (componentState.currentStep === "spec") return { step: 1, label: "Requirements", icon: "📋" };
-    if (componentState.currentStep === "design") return { step: 2, label: "Design", icon: "🎨" };
-    if (componentState.currentStep === "code") return { step: 3, label: "Code Generation", icon: "⚡" };
-    if (componentState.currentStep === "build") return { step: 4, label: "Build & Preview", icon: "🚀" };
-    if (componentState.componentCode) return { step: 4, label: "Complete", icon: "✅" };
-    return null;
-  };
-
-  const processStage = getProcessStage();
+  const visibleStepThreads = useMemo(() => {
+    return STEP_DEFINITIONS.map(({ id }) => stepThreads[id]).filter(
+      (thread): thread is StepThreadState =>
+        Boolean(
+          thread &&
+          thread.status !== "queued" &&
+          (thread.messages.length > 0 ||
+           thread.status === "running" ||
+           thread.status === "waiting" ||
+           thread.status === "error")
+        )
+    );
+  }, [stepThreads]);
 
   return (
-    <div className="h-full flex flex-col">
-      <div className="p-4 border-b border-border bg-background">
-        <h1 className="text-2xl font-bold text-foreground">V0 Clone</h1>
-        <p className="text-sm text-muted-foreground">
-          Describe your app in natural language
+    <div className="flex h-full flex-col">
+      <div className="border-b border-border bg-gradient-to-b from-background to-muted/20 p-6">
+        <h1 className="text-3xl font-semibold text-foreground">V0 Clone</h1>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Describe your app in natural language and I&apos;ll build it for you
         </p>
-        {processStage && (
-          <div className="mt-3 flex items-center gap-2 text-xs">
-            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-primary/10 border border-primary/20">
-              <span>{processStage.icon}</span>
-              <span className="font-semibold text-foreground">Stage {processStage.step}:</span>
-              <span className="text-muted-foreground">{processStage.label}</span>
-            </div>
-            <div className="flex gap-1">
-              {[1, 2, 3, 4].map((step) => (
-                <div
-                  key={step}
-                  className={`h-1.5 w-8 rounded-full transition-colors ${
-                    step <= (processStage.step || 0)
-                      ? "bg-primary"
-                      : "bg-muted"
-                  }`}
-                />
-              ))}
-            </div>
-          </div>
-        )}
       </div>
 
-      <div className="flex-1 overflow-y-auto space-y-4 p-4">
+      <div className="flex-1 space-y-6 overflow-y-auto p-6">
         {showEmptyState && (
-          <div className="flex h-full flex-col items-center justify-center gap-2 text-muted-foreground">
-            <p className="text-lg font-semibold text-foreground">Hi! 👋</p>
-            <p className="text-sm">Tell me what you'd like to build and I'll produce the UI.</p>
-            <p className="text-xs text-muted-foreground/70">
-              Try "Build a todo app with dark mode and reminders"
-            </p>
+          <div className="flex h-full flex-col items-center justify-center gap-4 text-center">
+            <div className="rounded-full bg-primary/10 p-4">
+              <Sparkles className="h-8 w-8 text-primary" />
+            </div>
+            <div className="space-y-2">
+              <p className="text-2xl font-semibold text-foreground">
+                Ready to build something amazing?
+              </p>
+              <p className="text-sm text-muted-foreground">
+                Tell me what you&apos;d like to build and I&apos;ll produce the UI.
+              </p>
+            </div>
+            <div className="mt-4 rounded-2xl border border-dashed border-border bg-muted/30 px-6 py-4">
+              <p className="text-xs font-medium text-muted-foreground">
+                Try something like:
+              </p>
+              <p className="mt-2 text-sm text-foreground">
+                &quot;Build a todo app with dark mode and reminders&quot;
+              </p>
+            </div>
           </div>
         )}
 
         {messages.map((message) => (
           <div key={message.id}>
-            <div
-              className={`flex ${
-                message.role === "user" ? "justify-end" : "justify-start"
-              }`}
-            >
-              <div
-                className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm shadow-sm ${
-                  message.role === "user"
-                    ? "bg-primary text-primary-foreground"
-                    : "bg-muted text-foreground"
-                }`}
-              >
-                {/* Thinking time BEFORE content */}
-                {message.role === "assistant" && message.thinkingTime && (
-                  <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-3 opacity-70">
-                    <span>🤔</span>
-                    <span>Thought for {message.thinkingTime}s</span>
-                  </div>
-                )}
-
-                {/* Content sections with inline status badges */}
-                <div className="space-y-3">
-                  {message.sections.map((section, idx) => (
-                    <div key={idx}>
-                      {section.type === "text" && (
-                        <div className="whitespace-pre-wrap leading-relaxed">
-                          {section.content}
-                        </div>
-                      )}
-                      {section.type === "status-badge" && (
-                        <div className="flex items-center gap-1.5 text-xs text-muted-foreground py-1">
-                          <span>{section.icon}</span>
-                          <span>{section.label}</span>
-                        </div>
-                      )}
+            {message.role === "user" ? (
+              /* User message */
+              <div className="flex justify-end">
+                <div className="flex items-start gap-3">
+                  <div className="flex flex-col items-end gap-3">
+                    <div className="max-w-[420px] rounded-3xl border border-border bg-primary px-5 py-3 text-sm leading-relaxed text-primary-foreground shadow-sm">
+                      {message.sections[0]?.content}
                     </div>
-                  ))}
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                      Sent just now
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 text-muted-foreground"
+                        onClick={() => copyToClipboard(message.sections[0]?.content || "")}
+                      >
+                        <ClipboardCopy className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                  </div>
+                  <Avatar fallback="ME" className="mt-1" />
                 </div>
-
-                {/* Working time AFTER content */}
-                {message.role === "assistant" && message.workingTime && (
-                  <div className="flex items-center gap-1.5 text-xs text-muted-foreground mt-3 opacity-70 border-t border-border/30 pt-2">
-                    <span>⚡</span>
-                    <span>Worked for {message.workingTime}s</span>
-                  </div>
-                )}
-
-                {/* Action buttons for assistant messages */}
-                {message.role === "assistant" && (
-                  <div className="flex items-center gap-2 mt-3 pt-2 border-t border-border/30">
-                    <button
-                      className="p-1.5 rounded hover:bg-background/60 transition-colors"
-                      title="Like"
-                    >
-                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 10h4.764a2 2 0 011.789 2.894l-3.5 7A2 2 0 0115.263 21h-4.017c-.163 0-.326-.02-.485-.06L7 20m7-10V5a2 2 0 00-2-2h-.095c-.5 0-.905.405-.905.905 0 .714-.211 1.412-.608 2.006L7 11v9m7-10h-2M7 20H5a2 2 0 01-2-2v-6a2 2 0 012-2h2.5" />
-                      </svg>
-                    </button>
-                    <button
-                      className="p-1.5 rounded hover:bg-background/60 transition-colors"
-                      title="Dislike"
-                    >
-                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 14H5.236a2 2 0 01-1.789-2.894l3.5-7A2 2 0 018.736 3h4.018a2 2 0 01.485.06l3.76.94m-7 10v5a2 2 0 002 2h.096c.5 0 .905-.405.905-.904 0-.715.211-1.413.608-2.008L17 13V4m-7 10h2m5-10h2a2 2 0 012 2v6a2 2 0 01-2 2h-2.5" />
-                      </svg>
-                    </button>
-                    <button
-                      className="p-1.5 rounded hover:bg-background/60 transition-colors"
-                      title="Copy"
-                      onClick={() => {
-                        const text = message.sections
-                          .filter(s => s.type === "text")
-                          .map(s => s.content)
-                          .join("\n\n");
-                        navigator.clipboard.writeText(text);
-                      }}
-                    >
-                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                      </svg>
-                    </button>
-                    <button
-                      className="p-1.5 rounded hover:bg-background/60 transition-colors"
-                      title="More"
-                    >
-                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" />
-                      </svg>
-                    </button>
-                  </div>
-                )}
               </div>
-            </div>
+            ) : (
+              /* Assistant message */
+              <div className="flex items-start gap-3">
+                <Avatar fallback="AI" className="mt-1 bg-primary/10 text-primary" />
+                <div className="flex-1 space-y-4">
+                  {/* Approval message */}
+                  {message.type === "approval" && message.prdText ? (
+                    <div className="max-w-[85%] space-y-4 rounded-2xl border border-border bg-card px-5 py-4 text-sm shadow-sm">
+                      <p className="text-sm text-muted-foreground">
+                        I drafted a PRD based on your request. Approve to continue to design and coding, or request changes if it needs tweaks.
+                      </p>
+                      <ApprovalMessage
+                        prdText={message.prdText}
+                        onApprove={handleApprove}
+                        onReject={handleReject}
+                      />
+                    </div>
+                  ) : (
+                    /* Normal text message */
+                    <div className="max-w-[85%] space-y-3 rounded-2xl border border-border bg-card px-5 py-4 text-sm shadow-sm">
+                      <div className="whitespace-pre-wrap leading-relaxed text-foreground">
+                        {message.sections[0]?.content}
+                      </div>
+                      <div className="flex items-center justify-between border-t border-border pt-3 text-xs text-muted-foreground">
+                        <div className="flex items-center gap-2">
+                          <Sparkles className="h-3.5 w-3.5" />
+                          Response
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <Button variant="ghost" size="icon" className="h-8 w-8">
+                            <ThumbsUp className="h-4 w-4" />
+                          </Button>
+                          <Button variant="ghost" size="icon" className="h-8 w-8">
+                            <ThumbsDown className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8"
+                            onClick={() => copyToClipboard(message.sections[0]?.content || "")}
+                          >
+                            <ClipboardCopy className="h-4 w-4" />
+                          </Button>
+                          <Button variant="ghost" size="icon" className="h-8 w-8">
+                            <MoreHorizontal className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         ))}
 
-
-        {isLoading && (
-          <div className="flex justify-start">
-            <div className="max-w-[85%] rounded-2xl bg-muted px-4 py-3 text-sm shadow-sm">
-              <div className="flex items-center gap-1.5 text-xs text-muted-foreground opacity-70">
-                <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                </svg>
-                <span>
-                  {componentState.currentStep === "spec" && "Analyzing requirements..."}
-                  {componentState.currentStep === "design" && "Designing component..."}
-                  {componentState.currentStep === "code" && "Generating code..."}
-                  {componentState.currentStep === "build" && "Building preview..."}
-                  {!componentState.currentStep && "Thinking..."}
-                </span>
-              </div>
-            </div>
-          </div>
-        )}
+        {visibleStepThreads.map((thread) => (
+          <StepThreadView
+            key={thread.id}
+            thread={thread}
+            onApprove={handleApprove}
+            onReject={handleReject}
+          />
+        ))}
 
         <div ref={messagesEndRef} />
       </div>
 
       <form
         onSubmit={handleSubmit}
-        className="p-4 border-t border-border bg-background"
+        className="border-t border-border bg-background p-4"
       >
-        <div className="flex gap-2">
+        <div className="flex gap-3">
           <input
             type="text"
             value={input}
             onChange={(event) => setInput(event.target.value)}
             placeholder="e.g., Build a todo app with dark mode..."
-            className="flex-1 px-4 py-2 rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-60"
+            className="flex-1 rounded-full border border-border bg-muted/30 px-5 py-3 text-sm transition-colors placeholder:text-muted-foreground/60 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:cursor-not-allowed disabled:opacity-60"
             disabled={isInputDisabled}
           />
-          <button
+          <Button
             type="submit"
             disabled={isInputDisabled || !input.trim()}
-            className="px-6 py-2 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            className="h-12 rounded-full px-6 shadow-sm transition-all hover:shadow-md"
+            size="lg"
           >
+            <Send className="mr-2 h-4 w-4" />
             Send
-          </button>
+          </Button>
         </div>
       </form>
+    </div>
+  );
+}
+
+interface StepThreadViewProps {
+  thread: StepThreadState;
+  onApprove: () => void;
+  onReject: () => void;
+}
+
+function StepThreadView({ thread, onApprove, onReject }: StepThreadViewProps) {
+  const statusIcon = (() => {
+    switch (thread.status) {
+      case "running":
+        return <Loader2 className="h-4 w-4 animate-spin text-foreground" />;
+      case "success":
+        return <CheckCircle2 className="h-4 w-4 text-emerald-500" />;
+      case "waiting":
+        return <Sparkles className="h-4 w-4 text-muted-foreground" />;
+      case "error":
+        return <Circle className="h-4 w-4 text-red-500" />;
+      default:
+        return <Circle className="h-4 w-4 text-muted-foreground" />;
+    }
+  })();
+
+  return (
+    <div className="space-y-4 rounded-3xl border border-border bg-card/80 p-6 shadow-sm">
+      <div className="flex items-center gap-3">
+        {statusIcon}
+        <div>
+          <p className="text-sm font-medium text-foreground">{thread.label}</p>
+          {thread.status === "waiting" && (
+            <p className="text-xs text-muted-foreground">Awaiting your approval to continue.</p>
+          )}
+        </div>
+      </div>
+
+      <div className="space-y-4 border-t border-dashed border-border pt-4">
+        {thread.messages.map((message) => {
+          if (message.variant === "approval") {
+            return (
+              <div key={message.id} className="rounded-2xl border border-border bg-background px-4 py-4">
+                <p className="mb-3 text-sm text-muted-foreground">
+                  Review the PRD below. Approve to proceed, or request tweaks.
+                </p>
+                <ApprovalMessage
+                  prdText={message.prdText}
+                  onApprove={onApprove}
+                  onReject={onReject}
+                />
+              </div>
+            );
+          }
+
+          if (message.variant === "thought") {
+            return (
+              <div key={message.id} className="flex items-start gap-2 text-sm text-muted-foreground">
+                <Sparkles className="mt-1 h-3.5 w-3.5 text-muted-foreground/80" />
+                <span className="leading-relaxed">{message.content}</span>
+              </div>
+            );
+          }
+
+          const baseClass =
+            message.variant === "log"
+              ? "text-xs text-muted-foreground/80"
+              : "text-sm text-foreground";
+
+          return (
+            <div key={message.id} className={`${baseClass} whitespace-pre-wrap leading-relaxed`}>
+              {message.content}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

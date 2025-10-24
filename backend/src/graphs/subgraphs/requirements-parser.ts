@@ -85,10 +85,10 @@ Respond in JSON format:
 
     logger.info("[RequirementsParser] Requirements extracted", { requirements });
 
-    // Move to design step
+    // Move to requirements approval step (wait for user approval)
     return {
       requirements,
-      currentStep: "design",
+      currentStep: "requirements_approval",
     };
   } catch (error) {
     logger.error("[RequirementsParser] Failed to parse requirements", { error });

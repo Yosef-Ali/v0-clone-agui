@@ -176,14 +176,110 @@ export function createV0GeneratorSubgraphsAssistant() {
         });
       }
 
-      // Execute supervisor graph
-      logger.info("[V0GeneratorSubgraphs] Invoking supervisor graph");
-      const result = await supervisorGraph.invoke(state as any);
+      // Helper to emit step status
+      const emitStepStatus = (stepId: string, status: "running" | "success" | "error", message?: string) => {
+        emit("step-status", { id: stepId, status, message });
+        logger.info(`[V0GeneratorSubgraphs] Step status: ${stepId} → ${status}`);
+      };
+
+      // Execute supervisor graph with streaming for real-time updates
+      logger.info("[V0GeneratorSubgraphs] Starting supervisor graph stream");
+
+      // Emit initial state
+      emitStepStatus("spec", "running");
+      emit("progress", { pct: 0 });
+
+      let result: SupervisorState | undefined;
+
+      // Stream the graph execution
+      const stream = await supervisorGraph.stream(state as any);
+
+      for await (const chunk of stream) {
+        // LangGraph stream yields { nodeName: nodeOutput } objects
+        const nodeName = Object.keys(chunk)[0];
+        const nodeOutput = chunk[nodeName];
+
+        logger.info(`[V0GeneratorSubgraphs] 📦 Stream chunk from node: "${nodeName}"`, {
+          currentStep: nodeOutput?.currentStep
+        });
+
+        // Update result with latest state
+        result = nodeOutput;
+
+        // Safety check
+        if (!result || typeof result !== 'object') {
+          continue;
+        }
+
+        // Emit events based on which node just completed
+        switch (nodeName) {
+          case "requirements_parser":
+            // Requirements subgraph just finished
+            emitStepStatus("spec", "success");
+            emit("progress", { pct: 25 });
+
+            if (result.requirements?.rawInput) {
+              const features = result.requirements.features?.map((f: string) => `- ${f}`).join('\n') || '';
+              const prdText = `# ${result.requirements.rawInput}\n\n## Features\n${features}`;
+              emit("prd", { prd: prdText });
+            }
+            break;
+
+          case "component_designer":
+            // Design subgraph just finished
+            emitStepStatus("design", "success");
+            emit("progress", { pct: 50 });
+            break;
+
+          case "code_generator":
+            // Code subgraph just finished
+            emitStepStatus("code", "success");
+            emit("progress", { pct: 75 });
+
+            if (result.componentState?.code) {
+              emit("artifact", {
+                file: {
+                  path: "component.tsx",
+                  content: result.componentState.code,
+                  language: "typescript"
+                }
+              });
+            }
+            break;
+
+          case "router":
+            // Router is deciding next step
+            if (result.currentStep === "requirements_approval") {
+              // PRD generated, emit approval-required event
+              emit("approval-required", {
+                prd: result.requirements?.rawInput,
+                requirements: result.requirements,
+              });
+            } else if (result.currentStep === "design") {
+              emitStepStatus("design", "running");
+            } else if (result.currentStep === "code") {
+              emitStepStatus("code", "running");
+            } else if (result.currentStep === "preview") {
+              emitStepStatus("build", "running");
+            }
+            break;
+        }
+      }
+
+      if (!result) {
+        throw new Error("Graph stream completed without producing a result");
+      }
 
       logger.info("[V0GeneratorSubgraphs] Supervisor graph completed", {
         currentStep: result.currentStep,
         hasCode: !!result.componentState?.code,
       });
+
+      // Final build step
+      if (result.currentStep === "preview" || result.currentStep === "approved") {
+        emitStepStatus("build", "success");
+        emit("progress", { pct: 100 });
+      }
 
       // Build ThreadValues response
       // Note: ThreadValues extends GeneratorState, but we add supervisorState for persistence
@@ -192,10 +288,22 @@ export function createV0GeneratorSubgraphsAssistant() {
         approved: result.userApproval,
         currentStep: result.currentStep,
         feedback: result.feedback || null,
-        steps: {},
+        steps: {
+          spec: { id: "spec", status: result.requirements ? "success" : "idle" },
+          design: { id: "design", status: result.designSpec ? "success" : "idle" },
+          code: { id: "code", status: result.componentState?.code ? "success" : "idle" },
+          build: { id: "build", status: result.currentStep === "preview" || result.currentStep === "approved" ? "success" : "idle" },
+        },
         logs: [],
-        artifacts: [],
+        artifacts: result.componentState?.code ? [{
+          path: "component.tsx",
+          content: result.componentState.code,
+          language: "typescript"
+        }] : [],
         progress: 100,
+        // Add requirements and designSpec
+        requirements: result.requirements,
+        designSpec: result.designSpec,
         // Add custom properties for subgraph state (will be cast to any when stored)
         ...(result as any),
       } as any;

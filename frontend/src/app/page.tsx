@@ -6,14 +6,14 @@ import { LivePreview } from "@/components/live-preview";
 export default function Home() {
   return (
     <main className="flex h-screen bg-background">
-      {/* Left Side: Chat */}
+      {/* Left Side: Chat with inline progress */}
       <div className="w-1/2 border-r border-border flex flex-col">
         <div className="flex-1 min-h-0">
           <ChatInterface />
         </div>
       </div>
 
-      {/* Right Side: Live Preview */}
+      {/* Right Side: Artifact Preview */}
       <div className="w-1/2 flex flex-col">
         <LivePreview />
       </div>

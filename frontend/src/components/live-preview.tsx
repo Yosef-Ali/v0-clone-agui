@@ -6,12 +6,9 @@ export function LivePreview() {
   const { componentState } = useComponentState();
 
   return (
-    <div className="flex-1 flex flex-col border-b border-border">
-      <div className="p-4 border-b border-border bg-background">
-        <h2 className="text-lg font-semibold">Live Preview</h2>
-        <p className="text-sm text-muted-foreground">
-          See your component as it&apos;s generated
-        </p>
+    <div className="flex-1 flex flex-col h-full">
+      <div className="p-3 border-b border-border bg-background">
+        <h2 className="text-sm font-semibold">Live Preview</h2>
       </div>
 
       <div className="flex-1 p-4 bg-muted/20 overflow-auto">

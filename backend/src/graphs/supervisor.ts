@@ -36,6 +36,21 @@ function routeToSubgraph(state: SupervisorState): string {
     case "requirements":
       return "requirements_parser";
 
+    case "requirements_approval":
+      // PRD generated, wait for user approval
+      if (userApproval === true) {
+        logger.info("[Supervisor] PRD approved, continuing to design");
+        return "component_designer";
+      }
+      // If feedback exists, regenerate requirements
+      if (state.feedback && state.feedback.trim() !== "") {
+        logger.info("[Supervisor] PRD rejected with feedback, regenerating");
+        return "requirements_parser";
+      }
+      // No approval or feedback yet - stop and wait for user input
+      logger.info("[Supervisor] Waiting for PRD approval");
+      return "end";
+
     case "design":
       return "component_designer";
 
