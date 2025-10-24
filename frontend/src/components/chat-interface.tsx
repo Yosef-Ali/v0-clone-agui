@@ -365,13 +365,13 @@ export function ChatInterface() {
                 if (payload.status === "running") {
                   currentStepRef.current = payload.id;
                   appendToStep(payload.id, {
-                    id: `${payload.id}-start-${Date.now()}`,
+                    id: `${payload.id}-start-${Date.now()}-${Math.random()}`,
                     variant: "thought",
                     content: "Starting execution.",
                   }, "running");
                 } else if (payload.status === "success") {
                   appendToStep(payload.id, {
-                    id: `${payload.id}-success-${Date.now()}`,
+                    id: `${payload.id}-success-${Date.now()}-${Math.random()}`,
                     variant: "log",
                     content: "Completed successfully.",
                   }, "success");
@@ -392,7 +392,7 @@ export function ChatInterface() {
                 console.log("📋 PRD received:", payload.prd.substring(0, 100) + "...");
                 setComponentState((prev) => ({ ...prev, prd: payload.prd }));
                 appendToStep("spec", {
-                  id: `spec-prd-${Date.now()}`,
+                  id: `spec-prd-${Date.now()}-${Math.random()}`,
                   variant: "text",
                   content: payload.prd,
                 });
@@ -410,7 +410,7 @@ export function ChatInterface() {
                 }));
                 const stepId = currentStepRef.current ?? "code";
                 appendToStep(stepId, {
-                  id: `${stepId}-artifact-${Date.now()}`,
+                  id: `${stepId}-artifact-${Date.now()}-${Math.random()}`,
                   variant: "log",
                   content: `Artifact generated: ${artifact.path}`,
                 });
@@ -422,7 +422,7 @@ export function ChatInterface() {
                 const stepId = currentStepRef.current;
                 if (stepId) {
                   appendToStep(stepId, {
-                    id: `${stepId}-log-${Date.now()}`,
+                    id: `${stepId}-log-${Date.now()}-${Math.random()}`,
                     variant: "log",
                     content: payload.text,
                   });
@@ -439,7 +439,7 @@ export function ChatInterface() {
               console.log("👍 PRD approval required");
               appendLog("PRD approval required – waiting on user decision");
               appendToStep("spec", {
-                id: `spec-approval-${Date.now()}`,
+                id: `spec-approval-${Date.now()}-${Math.random()}`,
                 variant: "approval",
                 prdText: payload?.prd || payload?.requirements?.rawInput || "",
                 requirements: payload?.requirements,
@@ -452,15 +452,24 @@ export function ChatInterface() {
               // Only add completion message to build step if it actually ran
               setStepThreads((prev) => {
                 const buildThread = prev.build;
-                if (buildThread && buildThread.status !== "queued") {
+                if (buildThread && buildThread.status !== "queued" && buildThread.status !== "success") {
                   const finalMessage =
                     payload?.summary ||
                     "Your component is ready! Check the preview on the right →";
-                  appendToStep("build", {
-                    id: `build-summary-${Date.now()}`,
-                    variant: "text",
-                    content: `${finalMessage}\n\nCompleted in ${elapsedTime}s.`,
-                  }, "success");
+                  const next = { ...prev };
+                  next.build = {
+                    ...buildThread,
+                    status: "success",
+                    messages: [
+                      ...buildThread.messages,
+                      {
+                        id: `build-summary-${Date.now()}-${Math.random()}`,
+                        variant: "text" as const,
+                        content: `${finalMessage}\n\nCompleted in ${elapsedTime}s.`,
+                      },
+                    ],
+                  };
+                  return next;
                 }
                 return prev;
               });
@@ -597,7 +606,7 @@ export function ChatInterface() {
         },
       },
       userMessage: {
-        id: Date.now().toString(),
+        id: `${Date.now()}-${Math.random()}`,
         role: "user",
         sections: [{ type: "text", content }],
       },
